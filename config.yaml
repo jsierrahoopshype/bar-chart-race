@@ -1,0 +1,47 @@
+# Example config for bar-chart-race
+# Override any of these via CLI flags.
+
+input_path: sample_data/nba_scoring.csv
+# gsheet_url: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
+# sheet_name: Sheet1
+# stat_column: pts
+
+preset: reels          # reels | youtube | square
+output: output.mp4
+
+fps: 60
+duration_sec: 30
+bitrate: "12M"
+top_n: 10
+
+title: "NBA Scoring Leaders"
+subtitle: "2023-24 Season"
+watermark: "@your_handle"
+
+bg_gradient:
+  - "#0f0c29"
+  - "#302b63"
+
+use_team_colors: true
+vignette: true
+noise: true
+leader_glow: true
+rounded_bars: true
+bar_shadow: true
+
+axis_mode: auto        # auto | locked
+
+# headshot_dir: assets/headshots
+# logo_dir: assets/logos
+
+# date_start: "2023-10-01"
+# date_end: "2024-04-30"
+
+intro_hold_sec: 1.0
+outro_hold_sec: 2.0
+
+# Font overrides (optional — auto-detected by default)
+# font_bold: /usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf
+# font_medium: /usr/share/fonts/truetype/google-fonts/Poppins-Medium.ttf
+# font_regular: /usr/share/fonts/truetype/google-fonts/Poppins-Regular.ttf
+# font_light: /usr/share/fonts/truetype/google-fonts/Poppins-Light.ttf
