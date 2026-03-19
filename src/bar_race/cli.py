@@ -7,6 +7,7 @@ import sys
 
 from bar_race.config import Config, PRESETS
 from bar_race.pipeline import run
+from bar_race.themes import list_themes
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -57,6 +58,20 @@ def _build_parser() -> argparse.ArgumentParser:
     txt.add_argument("--subtitle", default=None)
     txt.add_argument("--watermark", default=None)
 
+    # --- theme -------------------------------------------------------------
+    theme_grp = p.add_argument_group("theme")
+    theme_grp.add_argument(
+        "--theme", "-t",
+        default=None,
+        help="Visual theme slug (e.g. espn-broadcast, midnight-premium).",
+    )
+    theme_grp.add_argument(
+        "--list-themes",
+        action="store_true",
+        default=False,
+        help="Print all available themes and exit.",
+    )
+
     # --- visual tweaks -----------------------------------------------------
     vis = p.add_argument_group("visual tweaks")
     vis.add_argument("--bg-gradient", dest="bg_gradient", nargs=2, metavar=("C1", "C2"), default=None)
@@ -94,6 +109,13 @@ def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    # --list-themes: print and exit.
+    if args.list_themes:
+        print(f"\nAvailable themes:\n")
+        print(list_themes())
+        print()
+        sys.exit(0)
+
     # Start from YAML config if provided, else defaults.
     if args.config:
         cfg = Config.from_yaml(args.config)
@@ -103,7 +125,7 @@ def main(argv: list[str] | None = None) -> None:
     # Override with any CLI flags that were explicitly set.
     cli_vals = vars(args)
     for key, val in cli_vals.items():
-        if key == "config":
+        if key in ("config", "list_themes"):
             continue
         if val is None:
             continue

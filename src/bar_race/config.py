@@ -158,6 +158,9 @@ class Config:
     subtitle: str = ""
     watermark: str = ""
 
+    # --- theme -------------------------------------------------------------
+    theme: str = "midnight-premium"
+
     # --- visual tweaks -----------------------------------------------------
     bg_gradient: tuple[str, str] = ("#0f0c29", "#302b63")
     use_team_colors: bool = True
