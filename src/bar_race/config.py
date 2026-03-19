@@ -87,26 +87,41 @@ _LINUX_FONT_DIR = Path("/usr/share/fonts/truetype/google-fonts")
 _WIN_FONT_DIR = Path("C:/Windows/Fonts")
 
 
-def _find_font(name: str) -> str:
+_WINDOWS_FALLBACKS: dict[str, str] = {
+    "bold": "arialbd.ttf",
+    "medium": "arial.ttf",
+    "regular": "arial.ttf",
+    "light": "arial.ttf",
+}
+
+
+def _find_font(name: str, weight: str = "") -> str:
     """Return an absolute path to *name* (e.g. ``Poppins-Bold.ttf``).
 
-    Search order: Linux google-fonts dir → Windows Fonts dir → bare name
-    (PIL will use its built-in default if the path doesn't resolve).
+    Search order: Linux google-fonts dir → Windows Fonts dir (Poppins)
+    → Windows Fonts dir (Arial fallback) → bare name.
     """
     for base in (_LINUX_FONT_DIR, _WIN_FONT_DIR):
         candidate = base / name
         if candidate.is_file():
             return str(candidate)
-    return name  # fallback — let PIL try its own lookup
+
+    # Windows Arial fallback when Poppins is not installed.
+    if weight and weight in _WINDOWS_FALLBACKS:
+        fallback = _WIN_FONT_DIR / _WINDOWS_FALLBACKS[weight]
+        if fallback.is_file():
+            return str(fallback)
+
+    return name  # last resort — let PIL try its own lookup
 
 
 def default_fonts() -> dict[str, str]:
     """Return a mapping of weight → font file path."""
     return {
-        "bold": _find_font("Poppins-Bold.ttf"),
-        "medium": _find_font("Poppins-Medium.ttf"),
-        "regular": _find_font("Poppins-Regular.ttf"),
-        "light": _find_font("Poppins-Light.ttf"),
+        "bold": _find_font("Poppins-Bold.ttf", "bold"),
+        "medium": _find_font("Poppins-Medium.ttf", "medium"),
+        "regular": _find_font("Poppins-Regular.ttf", "regular"),
+        "light": _find_font("Poppins-Light.ttf", "light"),
     }
 
 
