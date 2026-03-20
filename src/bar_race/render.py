@@ -44,11 +44,6 @@ def _lerp_color(
     )
 
 
-def _smoothstep(t: float) -> float:
-    t = max(0.0, min(1.0, t))
-    return t * t * (3.0 - 2.0 * t)
-
-
 def _lighten(rgb: tuple[int, int, int], amount: float = 0.3) -> tuple[int, int, int]:
     return tuple(min(255, int(c + (255 - c) * amount)) for c in rgb)  # type: ignore[return-value]
 
@@ -81,8 +76,53 @@ def _color_for_bar(bar: BarState, use_team: bool) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Font loading
+# Font loading — with font_family support
 # ---------------------------------------------------------------------------
+
+# Windows system fonts by family.
+_FONT_FAMILIES: dict[str, dict[str, str]] = {
+    "sans": {
+        "bold": "arialbd.ttf",
+        "medium": "arial.ttf",
+        "regular": "arial.ttf",
+        "light": "arial.ttf",
+    },
+    "serif": {
+        "bold": "georgiab.ttf",
+        "medium": "georgiai.ttf",
+        "regular": "georgia.ttf",
+        "light": "georgia.ttf",
+    },
+    "mono": {
+        "bold": "courbd.ttf",
+        "medium": "cour.ttf",
+        "regular": "cour.ttf",
+        "light": "cour.ttf",
+    },
+    "condensed": {
+        "bold": "arialnb.ttf",   # Arial Narrow Bold
+        "medium": "arialn.ttf",  # Arial Narrow
+        "regular": "arialn.ttf",
+        "light": "arialn.ttf",
+    },
+}
+
+_WIN_FONT_DIR = Path("C:/Windows/Fonts")
+
+
+def _resolve_font(family: str, weight: str) -> str:
+    """Resolve a font family + weight to an absolute path."""
+    fam = _FONT_FAMILIES.get(family, _FONT_FAMILIES["sans"])
+    name = fam.get(weight, fam["regular"])
+    candidate = _WIN_FONT_DIR / name
+    if candidate.is_file():
+        return str(candidate)
+    # Fallback to Arial
+    fallback = _WIN_FONT_DIR / "arial.ttf"
+    if fallback.is_file():
+        return str(fallback)
+    return name
+
 
 def _load_font(path: str, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     try:
@@ -188,37 +228,56 @@ def _draw_accent_lines(
 ) -> None:
     """Draw top/bottom accent lines."""
     c = _hex_to_rgb(theme.accent_color)
-    thickness = max(3, h // 300)
-    draw.rectangle([0, 0, w, thickness], fill=(*c, 200))
-    draw.rectangle([0, h - thickness, w, h], fill=(*c, 200))
+    thickness = max(4, h // 200)
+    draw.rectangle([0, 0, w, thickness], fill=(*c, 220))
+    draw.rectangle([0, h - thickness, w, h], fill=(*c, 220))
 
 
 def _draw_diagonal_slash(
     draw: ImageDraw.Draw, w: int, h: int, theme: Theme,
 ) -> None:
     c = _hex_to_rgb(theme.accent_color)
-    sw = max(w // 8, 80)
-    # Draw a wide diagonal band from top-right to bottom area.
+    sw = max(w // 6, 100)
     points = [
         (w - sw, 0),
         (w, 0),
         (sw, h),
         (0, h),
     ]
-    draw.polygon(points, fill=(*c, 18))
+    draw.polygon(points, fill=(*c, 25))
+    # Second thinner slash for more visual impact.
+    sw2 = sw // 3
+    off = sw // 2
+    points2 = [
+        (w - sw - off, 0),
+        (w - off - sw + sw2, 0),
+        (sw2 + off - sw, h),
+        (off - sw, h),
+    ]
+    draw.polygon(points2, fill=(*c, 12))
 
 
 def _draw_court_lines(
     draw: ImageDraw.Draw, w: int, h: int, theme: Theme,
 ) -> None:
     c = _hex_to_rgb(theme.accent_color)
-    alpha = 15
+    alpha = 25
+    lw = max(2, h // 400)
     # Centre circle.
     cx, cy = w // 2, h // 2
-    r = min(w, h) // 6
-    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(*c, alpha), width=2)
+    r = min(w, h) // 5
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(*c, alpha), width=lw)
+    # Smaller inner circle.
+    r2 = r // 3
+    draw.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], outline=(*c, alpha // 2), width=lw)
     # Half-court line.
-    draw.line([(w // 2, 0), (w // 2, h)], fill=(*c, alpha), width=1)
+    draw.line([(w // 2, 0), (w // 2, h)], fill=(*c, alpha), width=lw)
+    # Free throw circles (left and right).
+    ftr = min(w, h) // 8
+    draw.arc([w // 6 - ftr, cy - ftr, w // 6 + ftr, cy + ftr],
+             start=270, end=90, fill=(*c, alpha // 2), width=lw)
+    draw.arc([w * 5 // 6 - ftr, cy - ftr, w * 5 // 6 + ftr, cy + ftr],
+             start=90, end=270, fill=(*c, alpha // 2), width=lw)
 
 
 def _draw_background_circle(
@@ -226,8 +285,11 @@ def _draw_background_circle(
 ) -> None:
     c = _hex_to_rgb(theme.accent_color)
     cx, cy = w // 2, h // 2
-    r = min(w, h) // 4
-    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(*c, 20), width=3)
+    r = min(w, h) // 3
+    lw = max(3, h // 300)
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(*c, 25), width=lw)
+    r2 = r // 2
+    draw.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], outline=(*c, 12), width=lw)
 
 
 def _draw_grid_lines(
@@ -235,22 +297,24 @@ def _draw_grid_lines(
     bar_area_top: int, bar_area_bottom: int, margin_left: int, margin_right: int,
 ) -> None:
     c = _hex_to_rgb(theme.text_secondary_color)
-    alpha = 20
+    alpha = 30
     bar_w = w - margin_left - margin_right
+    lw = max(1, h // 600)
     for frac in (0.25, 0.5, 0.75, 1.0):
         x = margin_left + int(bar_w * frac)
-        draw.line([(x, bar_area_top), (x, bar_area_bottom)], fill=(*c, alpha), width=1)
+        draw.line([(x, bar_area_top - 5), (x, bar_area_bottom + 5)],
+                  fill=(*c, alpha), width=lw)
 
 
 def _draw_border_frame(
     draw: ImageDraw.Draw, w: int, h: int, theme: Theme,
 ) -> None:
     c = _hex_to_rgb(theme.accent_color)
-    t = max(2, h // 400)
+    t = max(3, h // 300)
     if theme.border_frame == "full":
-        draw.rectangle([0, 0, w - 1, h - 1], outline=(*c, 60), width=t)
+        draw.rectangle([0, 0, w - 1, h - 1], outline=(*c, 80), width=t)
     elif theme.border_frame == "left-accent":
-        draw.rectangle([0, 0, t, h], fill=(*c, 120))
+        draw.rectangle([0, 0, t + 1, h], fill=(*c, 160))
 
 
 def _draw_rounded_rect(
@@ -262,6 +326,8 @@ def _draw_rounded_rect(
     width: int = 1,
 ) -> None:
     x1, y1, x2, y2 = xy
+    if x2 <= x1 or y2 <= y1:
+        return
     r = min(radius, (y2 - y1) // 2, (x2 - x1) // 2)
     if r < 1:
         draw.rectangle(xy, fill=fill, outline=outline, width=width)
@@ -270,8 +336,52 @@ def _draw_rounded_rect(
 
 
 # ---------------------------------------------------------------------------
-# Headshot helpers with white-halo removal
+# Bar gradient rendering (left-to-right team color gradient)
 # ---------------------------------------------------------------------------
+
+def _draw_bar_gradient(
+    img: Image.Image,
+    xy: tuple[int, int, int, int],
+    base_rgb: tuple[int, int, int],
+    alpha: int,
+    radius: int,
+) -> None:
+    """Draw a horizontal gradient bar: team color on left → lighter on right."""
+    x1, y1, x2, y2 = xy
+    bw = x2 - x1
+    bh = y2 - y1
+    if bw < 2 or bh < 2:
+        return
+
+    lighter = _lighten(base_rgb, 0.4)
+    # Build gradient strip using numpy.
+    ts = np.linspace(0, 1, bw, dtype=np.float32)[None, :]  # (1, bw)
+    c1a = np.array(base_rgb, dtype=np.float32)
+    c2a = np.array(lighter, dtype=np.float32)
+    rgb = (c1a + (c2a - c1a) * ts[:, :, None]).clip(0, 255).astype(np.uint8)
+    rgb = np.broadcast_to(rgb, (bh, bw, 3)).copy()
+    a_arr = np.full((bh, bw, 1), alpha, dtype=np.uint8)
+    bar_img = Image.fromarray(np.concatenate([rgb, a_arr], axis=2), "RGBA")
+
+    # Apply rounded mask.
+    mask = Image.new("L", (bw, bh), 0)
+    md = ImageDraw.Draw(mask)
+    r = min(radius, bh // 2, bw // 2)
+    if r > 0:
+        md.rounded_rectangle([0, 0, bw - 1, bh - 1], radius=r, fill=255)
+    else:
+        md.rectangle([0, 0, bw - 1, bh - 1], fill=255)
+    bar_img.putalpha(mask)
+
+    img.paste(bar_img, (x1, y1), bar_img)
+
+
+# ---------------------------------------------------------------------------
+# Headshot helpers with white-halo removal and caching
+# ---------------------------------------------------------------------------
+
+_headshot_cache: dict[str, Optional[Image.Image]] = {}
+
 
 def _remove_white_halo(img: Image.Image) -> Image.Image:
     """Erode alpha by 2-3 px and remove white-fringe pixels."""
@@ -283,7 +393,7 @@ def _remove_white_halo(img: Image.Image) -> Image.Image:
     is_semi = (a > 10) & (a < 200)
     arr[is_whitish & is_semi, 3] = 0  # make fully transparent
 
-    # Erode alpha by 2 pixels using numpy.
+    # Erode alpha by 2 pixels.
     from PIL import ImageFilter as _IF
     alpha_img = Image.fromarray(a)
     eroded = alpha_img.filter(_IF.MinFilter(size=5))
@@ -294,12 +404,19 @@ def _remove_white_halo(img: Image.Image) -> Image.Image:
 
 def _load_headshot(
     player: str, directory: str, size: int, theme: Theme,
+    team_color: tuple[int, int, int] | None = None,
 ) -> Optional[Image.Image]:
-    """Load, de-halo, shape, and optionally border a headshot."""
+    """Load, de-halo, shape, and optionally border a headshot. Cached."""
+    cache_key = f"{player}:{size}:{theme.slug}"
+    if cache_key in _headshot_cache:
+        return _headshot_cache[cache_key]
+
     if theme.headshot_shape == "none":
+        _headshot_cache[cache_key] = None
         return None
 
     base = Path(directory)
+    result = None
     for ext in (".png", ".jpg", ".jpeg", ".webp"):
         candidate = base / f"{player}{ext}"
         if candidate.is_file():
@@ -322,26 +439,31 @@ def _load_headshot(
 
             # Border.
             if theme.headshot_border:
-                bw = max(2, size // 40)
+                bw = max(2, size // 30)
                 border_c = _hex_to_rgb(theme.accent_color)
-                if theme.headshot_border_color == "team":
-                    # We don't have bar context here; accent is fine.
-                    pass
-                elif theme.headshot_border_color != "accent":
+                if theme.headshot_border_color == "team" and team_color:
+                    border_c = team_color
+                elif theme.headshot_border_color not in ("team", "accent"):
                     border_c = _hex_to_rgb(theme.headshot_border_color)
                 bordered = Image.new("RGBA", (size, size), (0, 0, 0, 0))
                 bd = ImageDraw.Draw(bordered)
                 if theme.headshot_shape == "circle":
-                    bd.ellipse([0, 0, size - 1, size - 1], outline=(*border_c, 200), width=bw)
+                    bd.ellipse([0, 0, size - 1, size - 1],
+                               outline=(*border_c, 220), width=bw)
                 elif theme.headshot_shape == "rounded":
                     bd.rounded_rectangle([0, 0, size - 1, size - 1],
-                                         radius=size // 6, outline=(*border_c, 200), width=bw)
+                                         radius=size // 6,
+                                         outline=(*border_c, 220), width=bw)
                 else:
-                    bd.rectangle([0, 0, size - 1, size - 1], outline=(*border_c, 200), width=bw)
+                    bd.rectangle([0, 0, size - 1, size - 1],
+                                 outline=(*border_c, 220), width=bw)
                 img = Image.alpha_composite(img, bordered)
 
-            return img
-    return None
+            result = img
+            break
+
+    _headshot_cache[cache_key] = result
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -358,20 +480,37 @@ class FrameRenderer:
         self.W = self.preset.width
         self.H = self.preset.height
 
-        # Precompute fonts
+        th = self.theme
+
+        # Resolve fonts based on theme font_family.
+        family = th.font_family
         scale = self.H / 1080
-        self.font_title = _load_font(cfg.font_bold, max(12, int(42 * scale)))
-        self.font_subtitle = _load_font(cfg.font_medium, max(10, int(26 * scale)))
-        self.font_name = _load_font(cfg.font_medium, max(10, int(22 * scale)))
-        self.font_value = _load_font(cfg.font_regular, max(10, int(20 * scale)))
-        self.font_date = _load_font(cfg.font_bold, max(14, int(72 * scale)))
-        self.font_watermark = _load_font(cfg.font_light, max(10, int(18 * scale)))
-        self.font_rank = _load_font(cfg.font_bold, max(10, int(18 * scale)))
-        self.font_rank_giant = _load_font(cfg.font_bold, max(20, int(80 * scale)))
-        self.font_branding = _load_font(cfg.font_bold, max(8, int(14 * scale)))
+
+        # Use theme's font_family to resolve system fonts.
+        # If user explicitly set fonts in config, use those instead.
+        bold_path = cfg.font_bold
+        medium_path = cfg.font_medium
+        regular_path = cfg.font_regular
+        light_path = cfg.font_light
+
+        # Override with font_family if config used defaults (auto-resolved).
+        if family != "sans":
+            bold_path = _resolve_font(family, "bold")
+            medium_path = _resolve_font(family, "medium")
+            regular_path = _resolve_font(family, "regular")
+            light_path = _resolve_font(family, "light")
+
+        self.font_title = _load_font(bold_path, max(12, int(44 * scale)))
+        self.font_subtitle = _load_font(medium_path, max(10, int(26 * scale)))
+        self.font_name = _load_font(medium_path, max(10, int(24 * scale)))
+        self.font_value = _load_font(regular_path, max(10, int(20 * scale)))
+        self.font_date = _load_font(bold_path, max(14, int(72 * scale)))
+        self.font_watermark = _load_font(light_path, max(10, int(18 * scale)))
+        self.font_rank = _load_font(bold_path, max(10, int(20 * scale)))
+        self.font_rank_giant = _load_font(bold_path, max(20, int(90 * scale)))
+        self.font_branding = _load_font(bold_path, max(8, int(14 * scale)))
 
         # Precompute background.
-        th = self.theme
         self._bg = _build_background(th, self.W, self.H)
         if th.vignette:
             self._bg = _apply_vignette(self._bg)
@@ -390,8 +529,8 @@ class FrameRenderer:
         # Layout constants
         self._margin_left = int(self.W * 0.22)
         self._margin_right = int(self.W * 0.05)
-        self._bar_area_top = int(self.H * 0.15)
-        self._bar_area_bottom = int(self.H * 0.85)
+        self._bar_area_top = int(self.H * 0.16)
+        self._bar_area_bottom = int(self.H * 0.86)
 
     # -- public API --------------------------------------------------------
 
@@ -420,7 +559,7 @@ class FrameRenderer:
 
         bar_area_h = self._bar_area_bottom - self._bar_area_top
         n_bars = self.cfg.top_n
-        bar_gap = max(4, int(bar_area_h * 0.02))
+        bar_gap = max(4, int(bar_area_h * 0.025))
         bar_h = max(8, (bar_area_h - bar_gap * (n_bars + 1)) // n_bars)
         max_bar_w = self.W - self._margin_left - self._margin_right
 
@@ -457,8 +596,8 @@ class FrameRenderer:
             # --- leader background highlight ------------------------------
             if th.leader_bg_highlight and is_leader:
                 draw.rectangle(
-                    [0, y1 - 2, self.W, y2 + 2],
-                    fill=(255, 255, 255, 8),
+                    [0, y1 - 4, self.W, y2 + 4],
+                    fill=(255, 255, 255, 12),
                 )
 
             # --- rank giant watermark behind bar --------------------------
@@ -468,38 +607,45 @@ class FrameRenderer:
                 rw, rh = _text_size(draw, rank_text, self.font_rank_giant)
                 rx = x1 + bar_w // 2 - rw // 2
                 ry = y1 + (bar_h - rh) // 2
-                draw.text((rx, ry), rank_text, fill=(*text_c, 15),
+                draw.text((rx, ry), rank_text, fill=(*text_c, 20),
                           font=self.font_rank_giant)
 
             # --- bar shadow -----------------------------------------------
             if th.bar_shadow:
-                sh_off = max(2, int(bar_h * 0.08))
+                sh_off = max(3, int(bar_h * 0.08))
                 _draw_rounded_rect(
                     draw,
                     (x1 + sh_off, y1 + sh_off, x2 + sh_off, y2 + sh_off),
-                    radius=radius, fill=(0, 0, 0, min(alpha, 60)),
+                    radius=radius, fill=(0, 0, 0, min(alpha, 70)),
                 )
 
             # --- main bar fill --------------------------------------------
-            fill = (*base_rgb, alpha)
-            _draw_rounded_rect(draw, (x1, y1, x2, y2), radius=radius, fill=fill)
+            if th.bar_gradient:
+                # Draw gradient bar using pixel-level rendering.
+                _draw_bar_gradient(img, (x1, y1, x2, y2), base_rgb, alpha, radius)
+                draw = ImageDraw.Draw(img)  # refresh after paste
+            else:
+                fill = (*base_rgb, alpha)
+                _draw_rounded_rect(draw, (x1, y1, x2, y2), radius=radius, fill=fill)
 
             # --- bar border (outlined style) ------------------------------
             if th.bar_border:
+                border_c = _lighten(base_rgb, 0.2)
                 _draw_rounded_rect(
                     draw, (x1, y1, x2, y2), radius=radius,
-                    outline=(*base_rgb, min(alpha, 200)),
+                    outline=(*border_c, min(alpha, 180)),
                     width=th.bar_border_width,
                 )
 
             # --- team stripe (thin left-edge stripe) ----------------------
             if th.bar_team_stripe:
-                stripe_w = max(3, bar_h // 8)
+                stripe_w = max(4, bar_h // 6)
+                stripe_rgb = _lighten(base_rgb, 0.35)
                 _draw_rounded_rect(
                     draw,
                     (x1, y1, x1 + stripe_w, y2),
                     radius=min(radius, stripe_w // 2),
-                    fill=(*_lighten(base_rgb, 0.3), alpha),
+                    fill=(*stripe_rgb, alpha),
                 )
 
             # --- highlight strip (top 30%) --------------------------------
@@ -509,7 +655,7 @@ class FrameRenderer:
                 _draw_rounded_rect(
                     draw, (x1, y1, x2, y1 + hl_h),
                     radius=min(radius, hl_h // 2),
-                    fill=(*hl_rgb, alpha),
+                    fill=(*hl_rgb, min(alpha, 120)),
                 )
 
             # --- shadow strip (bottom 18%) --------------------------------
@@ -519,7 +665,7 @@ class FrameRenderer:
                 _draw_rounded_rect(
                     draw, (x1, y2 - sh_h, x2, y2),
                     radius=min(radius, sh_h // 2),
-                    fill=(*sh_rgb, alpha),
+                    fill=(*sh_rgb, min(alpha, 120)),
                 )
 
             # --- leader effects -------------------------------------------
@@ -528,30 +674,31 @@ class FrameRenderer:
                     glow_c = base_rgb
                     if th.leader_glow_color != "team":
                         glow_c = _hex_to_rgb(th.leader_glow_color)
-                    glow = Image.new("RGBA", (bar_w + 20, bar_h + 20), (0, 0, 0, 0))
+                    glow = Image.new("RGBA", (bar_w + 24, bar_h + 24), (0, 0, 0, 0))
                     gd = ImageDraw.Draw(glow)
                     gd.rounded_rectangle(
-                        [0, 0, bar_w + 19, bar_h + 19],
-                        radius=radius + 5,
-                        fill=(*glow_c, 40),
+                        [0, 0, bar_w + 23, bar_h + 23],
+                        radius=radius + 6,
+                        fill=(*glow_c, 50),
                     )
-                    glow = glow.filter(ImageFilter.GaussianBlur(radius=10))
-                    img.paste(glow, (x1 - 10, y1 - 10), glow)
+                    glow = glow.filter(ImageFilter.GaussianBlur(radius=12))
+                    img.paste(glow, (x1 - 12, y1 - 12), glow)
                     draw = ImageDraw.Draw(img)
 
                 if th.leader_outline:
+                    outline_c = accent_c
                     _draw_rounded_rect(
-                        draw, (x1 - 1, y1 - 1, x2 + 1, y2 + 1),
-                        radius=radius + 1,
-                        outline=(*accent_c, 150), width=2,
+                        draw, (x1 - 2, y1 - 2, x2 + 2, y2 + 2),
+                        radius=radius + 2,
+                        outline=(*outline_c, 180), width=3,
                     )
 
                 if th.leader_underline:
                     line_c = _hex_to_rgb(th.accent_color)
-                    underline_h = max(2, bar_h // 12)
+                    underline_h = max(3, bar_h // 10)
                     draw.rectangle(
-                        [x1, y2 + 1, x2, y2 + underline_h],
-                        fill=(*line_c, 180),
+                        [x1, y2 + 2, x2, y2 + underline_h + 2],
+                        fill=(*line_c, 200),
                     )
 
             # --- edge fade for entering / exiting bars --------------------
@@ -566,13 +713,16 @@ class FrameRenderer:
 
             # --- headshot -------------------------------------------------
             if self.cfg.headshot_dir:
-                hs_size = max(16, bar_h - 4)
-                hs = _load_headshot(bar.player, self.cfg.headshot_dir, hs_size, th)
+                hs_size = max(16, bar_h - 6)
+                hs = _load_headshot(
+                    bar.player, self.cfg.headshot_dir, hs_size, th,
+                    team_color=base_rgb,
+                )
                 if hs is not None:
                     if th.headshot_position == "before-bar":
-                        hs_x = x1 - hs_size - 6
+                        hs_x = x1 - hs_size - 8
                     else:
-                        hs_x = x1 + 4
+                        hs_x = x1 + 6
                     hs_y = y1 + (bar_h - hs_size) // 2
                     img.paste(hs, (hs_x, hs_y), hs)
                     draw = ImageDraw.Draw(img)
@@ -582,29 +732,37 @@ class FrameRenderer:
                 rank_num = int(bar.rank) + 1
                 if th.rank_number_style == "padded":
                     rank_text = f"{rank_num:02d}"
+                elif th.rank_number_style == "badge":
+                    rank_text = str(rank_num)
                 else:
                     rank_text = str(rank_num)
                 rw, rh = _text_size(draw, rank_text, self.font_rank)
 
+                # Apply label case to name for width measurement.
+                name_for_measure = bar.player
+                if th.label_case == "upper":
+                    name_for_measure = name_for_measure.upper()
+                tw_name = _text_size(draw, name_for_measure, self.font_name)[0]
+
                 if th.rank_number_style == "badge":
-                    badge_size = max(rw, rh) + 8
-                    badge_x = x1 - badge_size - _text_size(draw, bar.player, self.font_name)[0] - 18
+                    badge_size = max(rw, rh) + 12
+                    badge_x = x1 - tw_name - badge_size - 16
                     badge_y = y1 + (bar_h - badge_size) // 2
                     draw.ellipse(
                         [badge_x, badge_y, badge_x + badge_size, badge_y + badge_size],
-                        fill=(*accent_c, 180),
+                        fill=(*accent_c, 200),
                     )
                     draw.text(
-                        (badge_x + (badge_size - rw) // 2, badge_y + (badge_size - rh) // 2),
-                        rank_text, fill=(255, 255, 255, 230), font=self.font_rank,
+                        (badge_x + (badge_size - rw) // 2,
+                         badge_y + (badge_size - rh) // 2),
+                        rank_text, fill=(255, 255, 255, 240), font=self.font_rank,
                     )
                 else:
-                    tw_name = _text_size(draw, bar.player, self.font_name)[0]
                     rank_x = x1 - tw_name - rw - 18
                     rank_y = y1 + (bar_h - rh) // 2
                     draw.text(
                         (rank_x, rank_y), rank_text,
-                        fill=(*text2_c, int(alpha * 0.6)), font=self.font_rank,
+                        fill=(*text2_c, int(alpha * 0.7)), font=self.font_rank,
                     )
 
             # --- player name (right-aligned, left of bar) -----------------
@@ -626,11 +784,11 @@ class FrameRenderer:
             val_text = f"{bar.value:,.0f}{th.value_suffix}"
             vw, vh = _text_size(draw, val_text, self.font_value)
 
-            if bar_w > vw + 16:
-                val_x = x2 - vw - 8
+            if bar_w > vw + 20:
+                val_x = x2 - vw - 10
                 val_color = (*text_c, alpha)
             else:
-                val_x = x2 + 8
+                val_x = x2 + 10
                 val_color = (*text2_c, alpha)
             val_y = y1 + (bar_h - vh) // 2
             draw.text((val_x, val_y), val_text, fill=val_color, font=self.font_value)
@@ -666,12 +824,12 @@ class FrameRenderer:
             draw.text(
                 (title_x, int(self.H * 0.04)),
                 self.cfg.title,
-                fill=(*title_c, 230),
+                fill=(*title_c, 240),
                 font=self.font_title, anchor=title_anchor,
             )
         if self.cfg.subtitle:
             draw.text(
-                (title_x, int(self.H * 0.04 + 50)),
+                (title_x, int(self.H * 0.04 + 52 * (self.H / 1080))),
                 self.cfg.subtitle,
                 fill=(*text2_c, 200),
                 font=self.font_subtitle, anchor=title_anchor,
@@ -680,15 +838,17 @@ class FrameRenderer:
         # --- branding tag -------------------------------------------------
         if th.show_branding_tag and th.branding_text:
             bc = _hex_to_rgb(th.branding_color)
-            bw, bh = _text_size(draw, th.branding_text, self.font_branding)
+            btw, bth = _text_size(draw, th.branding_text, self.font_branding)
             bx = self._margin_right + 10
-            by = int(self.H * 0.04 + 90)
-            # Tag background.
-            draw.rectangle(
-                [bx - 4, by - 2, bx + bw + 4, by + bh + 2],
-                fill=(*bc, 200),
+            by = int(self.H * 0.04 + 95 * (self.H / 1080))
+            # Tag background pill.
+            pad_x, pad_y = 8, 4
+            draw.rounded_rectangle(
+                [bx - pad_x, by - pad_y, bx + btw + pad_x, by + bth + pad_y],
+                radius=4,
+                fill=(*bc, 220),
             )
-            draw.text((bx, by), th.branding_text, fill=(255, 255, 255, 240),
+            draw.text((bx, by), th.branding_text, fill=(255, 255, 255, 245),
                       font=self.font_branding)
 
         # --- watermark (bottom-right) -------------------------------------
