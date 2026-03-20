@@ -62,6 +62,7 @@ class Keyframe:
 
     date: datetime
     entries: list[BarState]  # sorted descending by value
+    label: str = ""  # original label (e.g. "18" for age-based data)
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +71,7 @@ class Keyframe:
 
 def build_keyframes(df: pd.DataFrame, top_n: int = 10) -> list[Keyframe]:
     """Build one :class:`Keyframe` per unique date, keeping *top_n* entries."""
+    label_map: dict = df.attrs.get("date_label_map", {})
     keyframes: list[Keyframe] = []
 
     for date, grp in df.groupby("date"):
@@ -89,7 +91,8 @@ def build_keyframes(df: pd.DataFrame, top_n: int = 10) -> list[Keyframe]:
             for i, row in agg.iterrows()
         ]
         ts = pd.Timestamp(date).to_pydatetime()
-        keyframes.append(Keyframe(date=ts, entries=entries))
+        label = label_map.get(pd.Timestamp(date), "")
+        keyframes.append(Keyframe(date=ts, entries=entries, label=label))
 
     keyframes.sort(key=lambda k: k.date)
     return keyframes
@@ -103,8 +106,26 @@ def _lerp(a: float, b: float, t: float) -> float:
     return a + (b - a) * t
 
 
-def _interpolate_date(d1: datetime, d2: datetime, t: float) -> str:
-    """Linearly interpolate between two dates and return a label string."""
+def _interpolate_date(
+    d1: datetime,
+    d2: datetime,
+    t: float,
+    label_a: str = "",
+    label_b: str = "",
+) -> str:
+    """Linearly interpolate between two dates and return a label string.
+
+    When *label_a* / *label_b* are provided (numeric label data such as
+    ages or years) the function interpolates between the numeric values
+    and returns the rounded integer as a string.
+    """
+    if label_a and label_b:
+        try:
+            na, nb = float(label_a), float(label_b)
+            return str(int(round(na + (nb - na) * t)))
+        except ValueError:
+            return label_a if t < 0.5 else label_b
+
     delta = (d2 - d1).total_seconds()
     result = d1 + timedelta(seconds=delta * t)
     return result.strftime("%b %d, %Y")
@@ -178,7 +199,10 @@ def interpolate_frames(
             bars = [b for b in bars if b.rank < top_n]
             bars.sort(key=lambda b: b.rank)
 
-            date_label = _interpolate_date(kf_a.date, kf_b.date, raw_t)
+            date_label = _interpolate_date(
+                kf_a.date, kf_b.date, raw_t,
+                label_a=kf_a.label, label_b=kf_b.label,
+            )
 
             max_value = max((b.value for b in bars), default=1.0)
 

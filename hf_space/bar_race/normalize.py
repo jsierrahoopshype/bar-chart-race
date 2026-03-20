@@ -1,10 +1,20 @@
 """Auto-detect wide vs long/tidy format and normalize to canonical schema.
 
 Canonical columns: ``date``, ``player``, ``value``, ``team``.
+
+Supports three input shapes:
+
+1. **Long / tidy** — columns for date, player, value (and optionally team).
+2. **Wide** — first column is the date; remaining columns are player names.
+3. **Transposed wide** — first column is player names; remaining columns
+   are numeric time labels (ages, years, etc.).  Column headers may be
+   pure numbers (``18``, ``2001``) or descriptive strings containing a
+   number (``"Points scored at age 18"``).
 """
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 import numpy as np
@@ -31,12 +41,61 @@ def _match_col(columns: list[str], candidates: set[str]) -> Optional[str]:
     return None
 
 
+def _extract_numeric_label(s: str) -> Optional[str]:
+    """Extract a numeric label from a column header.
+
+    Returns the number as a string, or *None* if no number is found.
+
+    Examples::
+
+        "18"                       → "18"
+        "Points scored at age 18"  → "18"
+        "2001"                     → "2001"
+        "Player"                   → None
+    """
+    s = str(s).strip()
+    # Pure numeric.
+    if re.fullmatch(r'\d+', s):
+        return s
+    # Last number inside a descriptive header.
+    m = re.findall(r'\d+', s)
+    return m[-1] if m else None
+
+
+def _is_transposed_wide(df: pd.DataFrame) -> bool:
+    """Detect transposed wide format (players as rows, time periods as cols).
+
+    Heuristic: the first column contains strings (player names) and ≥80 % of
+    the remaining column headers contain an extractable number.
+    """
+    cols = list(df.columns)
+    if len(cols) < 3:
+        return False
+
+    first = str(cols[0]).strip().lower()
+    first_is_player = (
+        first in _PLAYER_NAMES
+        or first.startswith("unnamed")
+        or first == ""
+    )
+    if not first_is_player:
+        return False
+
+    other_cols = cols[1:]
+    numeric_count = sum(
+        1 for c in other_cols if _extract_numeric_label(c) is not None
+    )
+    return numeric_count >= len(other_cols) * 0.8
+
+
 def detect_format(df: pd.DataFrame) -> str:
-    """Return ``'long'`` or ``'wide'`` based on column heuristics."""
+    """Return ``'long'``, ``'wide'``, or ``'transposed_wide'``."""
     cols = list(df.columns)
     matched = [_match_col(cols, s) for s in _LONG_REQUIRED]
     if all(m is not None for m in matched):
         return "long"
+    if _is_transposed_wide(df):
+        return "transposed_wide"
     return "wide"
 
 
@@ -102,6 +161,69 @@ def _normalize_wide(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _normalize_transposed_wide(df: pd.DataFrame) -> pd.DataFrame:
+    """Players as rows, time periods (ages / years) as columns.
+
+    Melts the data to long format, converts numeric column headers to
+    timestamps for pipeline compatibility, and stores a label map in
+    ``df.attrs["date_label_map"]`` so that downstream code can display
+    original labels (e.g. ``"18"`` instead of ``"Jan 01, 2018"``).
+    """
+    cols = list(df.columns)
+    player_col = cols[0]
+    time_cols = cols[1:]
+
+    records: list[dict] = []
+    for _, row in df.iterrows():
+        player = str(row[player_col]).strip()
+        for tc in time_cols:
+            val = row[tc]
+            if pd.isna(val):
+                continue
+            val = float(val)
+            if val == 0:
+                continue
+            label = _extract_numeric_label(str(tc))
+            if label is not None:
+                records.append({
+                    "date_num": int(label),
+                    "date_label": label,
+                    "player": player,
+                    "value": val,
+                    "team": "",
+                })
+
+    if not records:
+        raise ValueError("No non-zero data found in transposed wide format.")
+
+    out = pd.DataFrame(records)
+
+    # Convert numeric labels to timestamps.
+    # Years (≥1900): use Jan 1 of that year.
+    # Small numbers (ages, rounds, etc.): offset by 2000.
+    min_num = out["date_num"].min()
+    max_num = out["date_num"].max()
+
+    if min_num >= 1900 and max_num <= 2200:
+        out["date"] = out["date_num"].apply(
+            lambda y: pd.Timestamp(year=int(y), month=1, day=1)
+        )
+    else:
+        out["date"] = out["date_num"].apply(
+            lambda a: pd.Timestamp(year=2000 + int(a), month=1, day=1)
+        )
+
+    # Build a map from timestamp → original label for display.
+    label_map: dict[pd.Timestamp, str] = {}
+    for _, row in out.drop_duplicates("date_num").iterrows():
+        label_map[row["date"]] = str(row["date_label"])
+
+    out["value"] = pd.to_numeric(out["value"], errors="coerce")
+    result = out[["date", "player", "value", "team"]].copy()
+    result.attrs["date_label_map"] = label_map
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -114,7 +236,7 @@ def normalize(
 ) -> pd.DataFrame:
     """Return a cleaned DataFrame with columns ``date, player, value, team``.
 
-    * Auto-detects wide vs long format.
+    * Auto-detects wide, transposed wide, and long format.
     * Drops rows with NaN date or value.
     * Applies optional date range filtering.
     * Validates that at least 2 distinct time steps remain.
@@ -123,19 +245,28 @@ def normalize(
 
     if fmt == "long":
         out = _normalize_long(df, stat_column=stat_column)
+    elif fmt == "transposed_wide":
+        out = _normalize_transposed_wide(df)
     else:
         out = _normalize_wide(df)
 
+    # Preserve attrs (e.g. date_label_map) through operations.
+    saved_attrs = out.attrs.copy()
+
     # Drop invalid rows.
     out = out.dropna(subset=["date", "value"]).copy()
+    out.attrs.update(saved_attrs)
 
     # Date filtering.
     if date_start:
         out = out[out["date"] >= pd.to_datetime(date_start)]
+        out.attrs.update(saved_attrs)
     if date_end:
         out = out[out["date"] <= pd.to_datetime(date_end)]
+        out.attrs.update(saved_attrs)
 
     out = out.sort_values(["date", "player"]).reset_index(drop=True)
+    out.attrs.update(saved_attrs)
 
     n_dates = out["date"].nunique()
     if n_dates < 2:
