@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bar Chart Race Customizer</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --bg3: #21262d;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text2: #8b949e;
+  --accent: #ff6b35;
+  --accent2: #1a8cff;
+  --green: #3fb950;
+  --red: #f85149;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,-apple-system,sans-serif; }
+a { color:var(--accent2); }
+
+/* Layout */
+.app { display:grid; grid-template-columns:340px 1fr; grid-template-rows:auto 1fr; height:100vh; }
+.header { grid-column:1/-1; background:var(--bg2); border-bottom:1px solid var(--border); padding:12px 24px; display:flex; align-items:center; gap:16px; }
+.header h1 { font-size:18px; font-weight:600; }
+.header h1 span { color:var(--accent); }
+.header .subtitle { color:var(--text2); font-size:13px; }
+
+/* Sidebar */
+.sidebar { background:var(--bg2); border-right:1px solid var(--border); overflow-y:auto; padding:16px; }
+.sidebar::-webkit-scrollbar { width:6px; }
+.sidebar::-webkit-scrollbar-thumb { background:var(--bg3); border-radius:3px; }
+
+.section { margin-bottom:20px; }
+.section-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--text2); margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+
+.field { margin-bottom:10px; }
+.field label { display:block; font-size:12px; color:var(--text2); margin-bottom:3px; }
+.field input[type="text"], .field input[type="number"], .field select, .field textarea {
+  width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px;
+  padding:6px 10px; color:var(--text); font-size:13px; outline:none;
+}
+.field input:focus, .field select:focus { border-color:var(--accent2); }
+.field input[type="color"] { width:40px; height:28px; border:1px solid var(--border); border-radius:4px; cursor:pointer; background:none; padding:1px; }
+.color-row { display:flex; gap:8px; align-items:center; }
+.color-row input[type="text"] { flex:1; }
+.field input[type="range"] { width:100%; accent-color:var(--accent); }
+.range-val { font-size:11px; color:var(--accent); float:right; }
+
+.toggle { display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer; font-size:13px; }
+.toggle input { accent-color:var(--accent); width:16px; height:16px; }
+
+.row { display:flex; gap:8px; }
+.row .field { flex:1; }
+
+/* Main area */
+.main { display:flex; flex-direction:column; overflow:hidden; }
+
+/* Theme picker */
+.theme-picker { padding:16px; border-bottom:1px solid var(--border); background:var(--bg2); }
+.theme-picker h3 { font-size:13px; color:var(--text2); margin-bottom:10px; }
+.theme-grid { display:flex; flex-wrap:wrap; gap:8px; max-height:180px; overflow-y:auto; }
+.theme-card {
+  width:120px; height:60px; border-radius:8px; cursor:pointer; position:relative;
+  border:2px solid transparent; overflow:hidden; transition:border-color .15s;
+  display:flex; align-items:flex-end; padding:4px 6px;
+}
+.theme-card:hover { border-color:var(--text2); }
+.theme-card.active { border-color:var(--accent); }
+.theme-card .name { font-size:9px; font-weight:600; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,.8); line-height:1.2; }
+
+/* Preview */
+.preview-area { flex:1; display:flex; align-items:center; justify-content:center; padding:20px; background:var(--bg); position:relative; }
+.preview-area canvas { max-width:100%; max-height:100%; border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,.5); }
+
+/* Output bar */
+.output-bar { background:var(--bg2); border-top:1px solid var(--border); padding:12px 20px; }
+.output-bar h3 { font-size:12px; color:var(--text2); margin-bottom:8px; }
+.cmd-box { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px 14px; font-family:'Cascadia Code','Fira Code',monospace; font-size:12px; color:var(--green); word-break:break-all; position:relative; }
+.cmd-box .copy-btn { position:absolute; top:6px; right:8px; background:var(--bg3); border:1px solid var(--border); color:var(--text2); padding:3px 10px; border-radius:4px; cursor:pointer; font-size:11px; }
+.cmd-box .copy-btn:hover { color:var(--text); }
+
+.btn-row { display:flex; gap:10px; margin-top:10px; }
+.btn { padding:8px 20px; border:none; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; transition:opacity .15s; }
+.btn:hover { opacity:.85; }
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-secondary { background:var(--bg3); color:var(--text); border:1px solid var(--border); }
+.btn-generate { background:var(--green); color:#000; }
+
+/* Progress */
+.progress-bar { height:4px; background:var(--bg3); border-radius:2px; margin-top:8px; display:none; }
+.progress-bar .fill { height:100%; background:var(--accent); border-radius:2px; transition:width .3s; width:0%; }
+.status-text { font-size:12px; color:var(--text2); margin-top:4px; }
+
+/* Upload zone */
+.upload-zone {
+  border:2px dashed var(--border); border-radius:8px; padding:16px; text-align:center;
+  cursor:pointer; transition:border-color .2s; margin-bottom:12px;
+}
+.upload-zone:hover, .upload-zone.dragover { border-color:var(--accent); }
+.upload-zone .icon { font-size:24px; margin-bottom:4px; }
+.upload-zone .label { font-size:12px; color:var(--text2); }
+.upload-zone .filename { font-size:12px; color:var(--green); margin-top:4px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1><span>Bar Chart Race</span> Customizer</h1>
+    <div class="subtitle">Design and generate animated bar chart race videos</div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <!-- Upload -->
+    <div class="section">
+      <div class="section-title">Data Source</div>
+      <div class="upload-zone" id="uploadZone">
+        <div class="icon">+</div>
+        <div class="label">Drop Excel/CSV file or click to upload</div>
+        <div class="filename" id="fileName"></div>
+      </div>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none">
+    </div>
+
+    <!-- Titles -->
+    <div class="section">
+      <div class="section-title">Titles & Branding</div>
+      <div class="field"><label>Title</label><input type="text" id="title" value="NBA Scoring Leaders" oninput="update()"></div>
+      <div class="field"><label>Subtitle</label><input type="text" id="subtitle" value="2024-25 Season" oninput="update()"></div>
+      <div class="field"><label>Watermark</label><input type="text" id="watermark" value="" oninput="update()"></div>
+    </div>
+
+    <!-- Video -->
+    <div class="section">
+      <div class="section-title">Video Settings</div>
+      <div class="row">
+        <div class="field"><label>Preset</label>
+          <select id="preset" onchange="update()">
+            <option value="youtube">YouTube (1920x1080)</option>
+            <option value="reels">Reels (1080x1920)</option>
+            <option value="square">Square (1080x1080)</option>
+          </select>
+        </div>
+        <div class="field"><label>Top N</label>
+          <input type="number" id="topN" value="10" min="3" max="15" onchange="update()">
+        </div>
+      </div>
+      <div class="field"><label>FPS <span class="range-val" id="fpsVal">30</span></label>
+        <input type="range" id="fps" min="24" max="60" value="30" step="6" oninput="document.getElementById('fpsVal').textContent=this.value;update()">
+      </div>
+      <div class="field"><label>Duration (sec) <span class="range-val" id="durVal">30</span></label>
+        <input type="range" id="duration" min="10" max="60" value="30" oninput="document.getElementById('durVal').textContent=this.value;update()">
+      </div>
+    </div>
+
+    <!-- Background -->
+    <div class="section">
+      <div class="section-title">Background</div>
+      <div class="row">
+        <div class="field"><label>Top Color</label>
+          <div class="color-row">
+            <input type="color" id="bgColor1" value="#0f0c29" oninput="syncColorText(this,'bgColor1Text');update()">
+            <input type="text" id="bgColor1Text" value="#0f0c29" oninput="syncColorPicker(this,'bgColor1');update()">
+          </div>
+        </div>
+        <div class="field"><label>Bottom Color</label>
+          <div class="color-row">
+            <input type="color" id="bgColor2" value="#302b63" oninput="syncColorText(this,'bgColor2Text');update()">
+            <input type="text" id="bgColor2Text" value="#302b63" oninput="syncColorPicker(this,'bgColor2');update()">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Accent -->
+    <div class="section">
+      <div class="section-title">Accent Colors</div>
+      <div class="row">
+        <div class="field"><label>Primary</label>
+          <div class="color-row">
+            <input type="color" id="accentColor" value="#ffffff" oninput="syncColorText(this,'accentColorText');update()">
+            <input type="text" id="accentColorText" value="#ffffff" oninput="syncColorPicker(this,'accentColor');update()">
+          </div>
+        </div>
+        <div class="field"><label>Secondary</label>
+          <div class="color-row">
+            <input type="color" id="accentSecondary" value="#888888" oninput="syncColorText(this,'accentSecondaryText');update()">
+            <input type="text" id="accentSecondaryText" value="#888888" oninput="syncColorPicker(this,'accentSecondary');update()">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bar Style -->
+    <div class="section">
+      <div class="section-title">Bar Style</div>
+      <div class="field"><label>Bar Radius <span class="range-val" id="barRadiusVal">10</span></label>
+        <input type="range" id="barRadius" min="0" max="30" value="10" oninput="document.getElementById('barRadiusVal').textContent=this.value;update()">
+      </div>
+      <div class="field"><label>Bar Opacity <span class="range-val" id="barOpacityVal">1.0</span></label>
+        <input type="range" id="barOpacity" min="0.3" max="1.0" value="1.0" step="0.05" oninput="document.getElementById('barOpacityVal').textContent=parseFloat(this.value).toFixed(2);update()">
+      </div>
+      <label class="toggle"><input type="checkbox" id="barGradient" onchange="update()"> Bar Gradient</label>
+      <label class="toggle"><input type="checkbox" id="barBorder" onchange="update()"> Bar Border</label>
+      <label class="toggle"><input type="checkbox" id="barTeamStripe" onchange="update()"> Team Stripe</label>
+      <label class="toggle"><input type="checkbox" id="barShadow" checked onchange="update()"> Bar Shadow</label>
+    </div>
+
+    <!-- Leader Effects -->
+    <div class="section">
+      <div class="section-title">Leader Effects</div>
+      <label class="toggle"><input type="checkbox" id="leaderGlow" checked onchange="update()"> Glow</label>
+      <label class="toggle"><input type="checkbox" id="leaderOutline" onchange="update()"> Outline</label>
+      <label class="toggle"><input type="checkbox" id="leaderUnderline" onchange="update()"> Underline</label>
+      <label class="toggle"><input type="checkbox" id="leaderBgHighlight" onchange="update()"> Row Highlight</label>
+    </div>
+
+    <!-- Text -->
+    <div class="section">
+      <div class="section-title">Text & Font</div>
+      <div class="row">
+        <div class="field"><label>Font Family</label>
+          <select id="fontFamily" onchange="update()">
+            <option value="sans">Sans (Arial)</option>
+            <option value="serif">Serif (Georgia)</option>
+            <option value="mono">Mono (Courier)</option>
+            <option value="condensed">Condensed (Narrow)</option>
+          </select>
+        </div>
+        <div class="field"><label>Label Case</label>
+          <select id="labelCase" onchange="update()">
+            <option value="normal">Normal</option>
+            <option value="upper">UPPERCASE</option>
+            <option value="title">Title Case</option>
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>Value Suffix</label><input type="text" id="valueSuffix" value="" placeholder="e.g. PTS" oninput="update()"></div>
+    </div>
+
+    <!-- Headshot -->
+    <div class="section">
+      <div class="section-title">Headshots</div>
+      <div class="row">
+        <div class="field"><label>Shape</label>
+          <select id="headshotShape" onchange="update()">
+            <option value="circle">Circle</option>
+            <option value="rounded">Rounded</option>
+            <option value="square">Square</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+      </div>
+      <label class="toggle"><input type="checkbox" id="headshotBorder" onchange="update()"> Headshot Border</label>
+    </div>
+
+    <!-- Decorative -->
+    <div class="section">
+      <div class="section-title">Decorative Elements</div>
+      <label class="toggle"><input type="checkbox" id="showAccentLine" onchange="update()"> Accent Lines</label>
+      <label class="toggle"><input type="checkbox" id="showDiagonalSlash" onchange="update()"> Diagonal Slash</label>
+      <label class="toggle"><input type="checkbox" id="showCourtLines" onchange="update()"> Court Lines</label>
+      <label class="toggle"><input type="checkbox" id="showGridLines" onchange="update()"> Grid Lines</label>
+      <label class="toggle"><input type="checkbox" id="showBgCircle" onchange="update()"> Background Circle</label>
+      <label class="toggle"><input type="checkbox" id="showRankNumbers" onchange="update()"> Rank Numbers</label>
+      <label class="toggle"><input type="checkbox" id="rankGiantWatermark" onchange="update()"> Giant Rank Watermark</label>
+      <label class="toggle"><input type="checkbox" id="vignette" checked onchange="update()"> Vignette</label>
+      <label class="toggle"><input type="checkbox" id="noise" checked onchange="update()"> Noise Texture</label>
+      <div class="field"><label>Border Frame</label>
+        <select id="borderFrame" onchange="update()">
+          <option value="none">None</option>
+          <option value="top-bottom">Top & Bottom</option>
+          <option value="full">Full Frame</option>
+          <option value="left-accent">Left Accent</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Branding -->
+    <div class="section">
+      <div class="section-title">Branding Tag</div>
+      <label class="toggle"><input type="checkbox" id="showBrandingTag" onchange="update()"> Show Branding</label>
+      <div class="field"><label>Text</label><input type="text" id="brandingText" value="" placeholder="e.g. ESPN" oninput="update()"></div>
+      <div class="field"><label>Color</label>
+        <div class="color-row">
+          <input type="color" id="brandingColor" value="#ff0000" oninput="syncColorText(this,'brandingColorText');update()">
+          <input type="text" id="brandingColorText" value="#ff0000" oninput="syncColorPicker(this,'brandingColor');update()">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Theme picker -->
+    <div class="theme-picker">
+      <h3>Select Theme (click to apply all settings)</h3>
+      <div class="theme-grid" id="themeGrid"></div>
+    </div>
+
+    <!-- Preview -->
+    <div class="preview-area">
+      <canvas id="preview" width="960" height="540"></canvas>
+    </div>
+
+    <!-- Output -->
+    <div class="output-bar">
+      <h3>CLI Command</h3>
+      <div class="cmd-box" id="cmdBox">
+        <span id="cmdText">python -m bar_race --input data.xlsx --output race.mp4 --theme midnight-premium --preset youtube</span>
+        <button class="copy-btn" onclick="copyCmd()">Copy</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="downloadYaml()">Download config.yaml</button>
+        <button class="btn btn-generate" id="generateBtn" onclick="generateVideo()">Generate Video</button>
+      </div>
+      <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>
+      <div class="status-text" id="statusText"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Sample data for preview.
+const SAMPLE_BARS = [
+  { player: 'Shai Gilgeous-Alexander', team: 'OKC', value: 1500, color: '#007AC1' },
+  { player: 'Luka Doncic', team: 'DAL', value: 1400, color: '#00538C' },
+  { player: 'Giannis Antetokounmpo', team: 'MIL', value: 1300, color: '#00471B' },
+  { player: 'Jayson Tatum', team: 'BOS', value: 1200, color: '#007A33' },
+  { player: 'Kevin Durant', team: 'PHX', value: 1100, color: '#1D1160' },
+  { player: 'LeBron James', team: 'LAL', value: 1050, color: '#552583' },
+  { player: 'Anthony Edwards', team: 'MIN', value: 1000, color: '#0C2340' },
+  { player: 'Nikola Jokic', team: 'DEN', value: 950, color: '#0E2240' },
+  { player: 'Devin Booker', team: 'PHX', value: 900, color: '#1D1160' },
+  { player: 'Trae Young', team: 'ATL', value: 850, color: '#E03A3E' },
+];
+
+let themes = [];
+let currentTheme = 'midnight-premium';
+let uploadedFile = null;
+
+// Color sync helpers.
+function syncColorText(picker, textId) {
+  document.getElementById(textId).value = picker.value;
+}
+function syncColorPicker(textInput, pickerId) {
+  const v = textInput.value;
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) document.getElementById(pickerId).value = v;
+}
+
+function hexToRgb(hex) {
+  hex = hex.replace('#', '');
+  return [parseInt(hex.substr(0,2),16), parseInt(hex.substr(2,2),16), parseInt(hex.substr(4,2),16)];
+}
+
+function lighten(rgb, amt) {
+  return rgb.map(c => Math.min(255, Math.round(c + (255-c)*amt)));
+}
+function darken(rgb, amt) {
+  return rgb.map(c => Math.max(0, Math.round(c * (1-amt))));
+}
+
+// Load themes from API.
+async function loadThemes() {
+  try {
+    const r = await fetch('/api/themes');
+    themes = await r.json();
+  } catch(e) {
+    // Fallback: generate cards from hardcoded basics.
+    themes = [];
+  }
+  renderThemeGrid();
+  applyTheme('midnight-premium');
+}
+
+function renderThemeGrid() {
+  const grid = document.getElementById('themeGrid');
+  grid.innerHTML = '';
+  themes.forEach(t => {
+    const card = document.createElement('div');
+    card.className = 'theme-card' + (t.slug === currentTheme ? ' active' : '');
+    // Background from theme colors.
+    const colors = t.bg_colors || ['#0f0c29','#302b63'];
+    if (t.bg_type === 'split') {
+      card.style.background = `linear-gradient(90deg, ${colors[0]} 50%, ${colors[1] || colors[0]} 50%)`;
+    } else if (t.bg_type === 'solid') {
+      card.style.background = colors[0];
+    } else {
+      card.style.background = `linear-gradient(180deg, ${colors[0]}, ${colors[1] || colors[0]})`;
+    }
+    // Accent bar.
+    const accent = t.accent_color || '#fff';
+    card.innerHTML = `<div style="position:absolute;top:0;left:0;right:0;height:3px;background:${accent};opacity:.7"></div>`;
+    card.innerHTML += `<div class="name">${t.name}</div>`;
+    card.onclick = () => { currentTheme = t.slug; applyTheme(t.slug); };
+    grid.appendChild(card);
+  });
+}
+
+function applyTheme(slug) {
+  const t = themes.find(x => x.slug === slug);
+  if (!t) return;
+  currentTheme = slug;
+
+  // Apply all theme values to UI controls.
+  const bgColors = t.bg_colors || ['#0f0c29','#302b63'];
+  setColor('bgColor1', bgColors[0]);
+  setColor('bgColor2', bgColors[1] || bgColors[0]);
+  setColor('accentColor', t.accent_color || '#ffffff');
+  setColor('accentSecondary', t.accent_secondary || '#888888');
+
+  setVal('barRadius', t.bar_radius);
+  document.getElementById('barRadiusVal').textContent = t.bar_radius;
+  setVal('barOpacity', t.bar_opacity);
+  document.getElementById('barOpacityVal').textContent = parseFloat(t.bar_opacity).toFixed(2);
+
+  setCheck('barGradient', t.bar_gradient);
+  setCheck('barBorder', t.bar_border);
+  setCheck('barTeamStripe', t.bar_team_stripe);
+  setCheck('barShadow', t.bar_shadow);
+  setCheck('leaderGlow', t.leader_glow);
+  setCheck('leaderOutline', t.leader_outline);
+  setCheck('leaderUnderline', t.leader_underline);
+  setCheck('leaderBgHighlight', false);
+  setCheck('showAccentLine', t.show_accent_line);
+  setCheck('showDiagonalSlash', t.show_diagonal_slash);
+  setCheck('showCourtLines', t.show_court_lines);
+  setCheck('showGridLines', t.show_grid_lines);
+  setCheck('showBgCircle', t.show_background_circle);
+  setCheck('showRankNumbers', t.show_rank_numbers);
+  setCheck('rankGiantWatermark', t.rank_giant_watermark);
+  setCheck('vignette', t.vignette);
+  setCheck('noise', t.noise);
+  setCheck('headshotBorder', t.headshot_border);
+  setCheck('showBrandingTag', t.show_branding_tag);
+
+  setVal('fontFamily', t.font_family || 'sans');
+  setVal('labelCase', t.label_case || 'normal');
+  setVal('headshotShape', t.headshot_shape || 'circle');
+  setVal('borderFrame', t.border_frame || 'none');
+  setVal('valueSuffix', t.value_suffix || '');
+  setVal('brandingText', t.branding_text || '');
+  setColor('brandingColor', t.branding_color || '#ff0000');
+
+  // Highlight active card.
+  document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.theme-card').forEach(c => {
+    if (c.querySelector('.name')?.textContent === t.name) c.classList.add('active');
+  });
+
+  update();
+}
+
+function setVal(id, v) { const el = document.getElementById(id); if (el) el.value = v; }
+function setCheck(id, v) { const el = document.getElementById(id); if (el) el.checked = !!v; }
+function setColor(id, v) {
+  const picker = document.getElementById(id);
+  const text = document.getElementById(id + 'Text');
+  if (picker) picker.value = v;
+  if (text) text.value = v;
+}
+function getVal(id) { return document.getElementById(id)?.value || ''; }
+function getCheck(id) { return document.getElementById(id)?.checked || false; }
+function getNum(id) { return parseFloat(document.getElementById(id)?.value || 0); }
+
+// Build CLI command.
+function buildCmd() {
+  const parts = ['python -m bar_race'];
+  const file = uploadedFile ? uploadedFile.name : 'data.xlsx';
+  parts.push(`--input "${file}"`);
+  parts.push(`--output race.mp4`);
+  parts.push(`--theme ${currentTheme}`);
+  parts.push(`--preset ${getVal('preset')}`);
+  parts.push(`--fps ${getVal('fps')}`);
+  parts.push(`--duration ${getVal('duration')}`);
+  parts.push(`--top-n ${getVal('topN')}`);
+  if (getVal('title')) parts.push(`--title "${getVal('title')}"`);
+  if (getVal('subtitle')) parts.push(`--subtitle "${getVal('subtitle')}"`);
+  if (getVal('watermark')) parts.push(`--watermark "${getVal('watermark')}"`);
+  parts.push(`--headshot-dir assets/headshots`);
+  return parts.join(' \\\n  ');
+}
+
+function buildYaml() {
+  let y = '# Bar Chart Race Configuration\n';
+  y += `theme: "${currentTheme}"\n`;
+  y += `preset: "${getVal('preset')}"\n`;
+  y += `fps: ${getVal('fps')}\n`;
+  y += `duration_sec: ${getVal('duration')}\n`;
+  y += `top_n: ${getVal('topN')}\n`;
+  if (getVal('title')) y += `title: "${getVal('title')}"\n`;
+  if (getVal('subtitle')) y += `subtitle: "${getVal('subtitle')}"\n`;
+  if (getVal('watermark')) y += `watermark: "${getVal('watermark')}"\n`;
+  y += `headshot_dir: "assets/headshots"\n`;
+  y += `logo_dir: "assets/logos"\n`;
+  return y;
+}
+
+function copyCmd() {
+  navigator.clipboard.writeText(document.getElementById('cmdText').textContent);
+  const btn = document.querySelector('.copy-btn');
+  btn.textContent = 'Copied!';
+  setTimeout(() => btn.textContent = 'Copy', 1500);
+}
+
+function downloadYaml() {
+  const blob = new Blob([buildYaml()], { type: 'text/yaml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'config.yaml';
+  a.click();
+}
+
+// Canvas preview.
+function update() {
+  document.getElementById('cmdText').textContent = buildCmd();
+  drawPreview();
+}
+
+function drawPreview() {
+  const canvas = document.getElementById('preview');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  // Background.
+  const bg1 = getVal('bgColor1Text') || '#0f0c29';
+  const bg2 = getVal('bgColor2Text') || '#302b63';
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, bg1);
+  grad.addColorStop(1, bg2);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  const accent = getVal('accentColorText') || '#ffffff';
+  const topN = parseInt(getVal('topN')) || 10;
+  const barRadius = getNum('barRadius');
+  const labelCase = getVal('labelCase');
+  const fontFamily = { sans: 'Arial', serif: 'Georgia', mono: '"Courier New"', condensed: '"Arial Narrow", Arial' }[getVal('fontFamily')] || 'Arial';
+
+  // Decorative elements.
+  if (getCheck('showDiagonalSlash')) {
+    const rgb = hexToRgb(accent);
+    ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.08)`;
+    ctx.beginPath();
+    const sw = W / 6;
+    ctx.moveTo(W - sw, 0); ctx.lineTo(W, 0); ctx.lineTo(sw, H); ctx.lineTo(0, H);
+    ctx.fill();
+  }
+
+  if (getCheck('showCourtLines')) {
+    const rgb = hexToRgb(accent);
+    ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.08)`;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(W/2, H/2, Math.min(W,H)/5, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
+  }
+
+  if (getCheck('showBgCircle')) {
+    const rgb = hexToRgb(accent);
+    ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.06)`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(W/2, H/2, Math.min(W,H)/3, 0, Math.PI*2); ctx.stroke();
+  }
+
+  // Accent lines.
+  if (getCheck('showAccentLine')) {
+    ctx.fillStyle = accent;
+    ctx.globalAlpha = 0.8;
+    const t = Math.max(2, H/200);
+    ctx.fillRect(0, 0, W, t);
+    ctx.fillRect(0, H-t, W, t);
+    ctx.globalAlpha = 1;
+  }
+
+  // Grid lines.
+  const marginLeft = W * 0.22, marginRight = W * 0.05;
+  const barAreaTop = H * 0.16, barAreaBottom = H * 0.86;
+  const barAreaW = W - marginLeft - marginRight;
+
+  if (getCheck('showGridLines')) {
+    const rgb = hexToRgb(getVal('accentSecondaryText') || '#888888');
+    ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.1)`;
+    ctx.lineWidth = 1;
+    [0.25, 0.5, 0.75, 1.0].forEach(f => {
+      const x = marginLeft + barAreaW * f;
+      ctx.beginPath(); ctx.moveTo(x, barAreaTop); ctx.lineTo(x, barAreaBottom); ctx.stroke();
+    });
+  }
+
+  // Border frame.
+  const borderFrame = getVal('borderFrame');
+  if (borderFrame === 'full') {
+    ctx.strokeStyle = accent; ctx.globalAlpha = 0.2; ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, W-2, H-2); ctx.globalAlpha = 1;
+  } else if (borderFrame === 'left-accent') {
+    ctx.fillStyle = accent; ctx.globalAlpha = 0.5;
+    ctx.fillRect(0, 0, 3, H); ctx.globalAlpha = 1;
+  } else if (borderFrame === 'top-bottom') {
+    ctx.fillStyle = accent; ctx.globalAlpha = 0.8;
+    const t = Math.max(2, H/200);
+    ctx.fillRect(0, 0, W, t); ctx.fillRect(0, H-t, W, t);
+    ctx.globalAlpha = 1;
+  }
+
+  // Bars.
+  const barAreaH = barAreaBottom - barAreaTop;
+  const barsToShow = Math.min(topN, SAMPLE_BARS.length);
+  const barGap = Math.max(2, barAreaH * 0.025);
+  const barH = Math.max(4, (barAreaH - barGap * (barsToShow + 1)) / barsToShow);
+  const maxVal = SAMPLE_BARS[0].value;
+  const opacity = getNum('barOpacity');
+
+  for (let i = 0; i < barsToShow; i++) {
+    const bar = SAMPLE_BARS[i];
+    const y = barAreaTop + barGap + i * (barH + barGap);
+    const barW = Math.max(1, (bar.value / maxVal) * barAreaW);
+    const x = marginLeft;
+    const rgb = hexToRgb(bar.color);
+    const isLeader = i === 0;
+
+    // Leader bg highlight.
+    if (isLeader && getCheck('leaderBgHighlight')) {
+      ctx.fillStyle = 'rgba(255,255,255,0.03)';
+      ctx.fillRect(0, y - 2, W, barH + 4);
+    }
+
+    // Giant rank watermark.
+    if (getCheck('rankGiantWatermark')) {
+      ctx.font = `bold ${barH * 1.2}px ${fontFamily}`;
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.textAlign = 'center';
+      ctx.fillText(String(i + 1), x + barW / 2, y + barH * 0.85);
+    }
+
+    // Shadow.
+    if (getCheck('barShadow')) {
+      const so = Math.max(2, barH * 0.06);
+      ctx.fillStyle = `rgba(0,0,0,0.25)`;
+      roundRect(ctx, x + so, y + so, barW, barH, barRadius);
+      ctx.fill();
+    }
+
+    // Bar fill.
+    ctx.globalAlpha = opacity;
+    if (getCheck('barGradient')) {
+      const lg = ctx.createLinearGradient(x, 0, x + barW, 0);
+      lg.addColorStop(0, `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+      const lt = lighten(rgb, 0.4);
+      lg.addColorStop(1, `rgb(${lt[0]},${lt[1]},${lt[2]})`);
+      ctx.fillStyle = lg;
+    } else {
+      ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+    }
+    roundRect(ctx, x, y, barW, barH, barRadius);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Bar border.
+    if (getCheck('barBorder')) {
+      const lt = lighten(rgb, 0.2);
+      ctx.strokeStyle = `rgba(${lt[0]},${lt[1]},${lt[2]},0.7)`;
+      ctx.lineWidth = 2;
+      roundRect(ctx, x, y, barW, barH, barRadius);
+      ctx.stroke();
+    }
+
+    // Team stripe.
+    if (getCheck('barTeamStripe')) {
+      const lt = lighten(rgb, 0.35);
+      const sw = Math.max(3, barH / 6);
+      ctx.fillStyle = `rgba(${lt[0]},${lt[1]},${lt[2]},${opacity})`;
+      roundRect(ctx, x, y, sw, barH, Math.min(barRadius, sw/2));
+      ctx.fill();
+    }
+
+    // Highlight strip.
+    const hlH = barH * 0.3;
+    ctx.fillStyle = `rgba(${lighten(rgb,.25).join(',')},0.4)`;
+    roundRect(ctx, x, y, barW, hlH, Math.min(barRadius, hlH/2));
+    ctx.fill();
+
+    // Leader effects.
+    if (isLeader) {
+      if (getCheck('leaderOutline')) {
+        const ac = hexToRgb(accent);
+        ctx.strokeStyle = `rgba(${ac[0]},${ac[1]},${ac[2]},0.7)`;
+        ctx.lineWidth = 3;
+        roundRect(ctx, x-2, y-2, barW+4, barH+4, barRadius+2);
+        ctx.stroke();
+      }
+      if (getCheck('leaderUnderline')) {
+        const ac = hexToRgb(accent);
+        const ulH = Math.max(2, barH / 10);
+        ctx.fillStyle = `rgba(${ac[0]},${ac[1]},${ac[2]},0.8)`;
+        ctx.fillRect(x, y + barH + 2, barW, ulH);
+      }
+    }
+
+    // Headshot placeholder.
+    const hsShape = getVal('headshotShape');
+    if (hsShape !== 'none') {
+      const hs = barH - 4;
+      const hx = x + 4, hy = y + 2;
+      ctx.fillStyle = `rgba(${darken(rgb,.3).join(',')},0.8)`;
+      if (hsShape === 'circle') {
+        ctx.beginPath(); ctx.arc(hx + hs/2, hy + hs/2, hs/2, 0, Math.PI*2); ctx.fill();
+      } else if (hsShape === 'rounded') {
+        roundRect(ctx, hx, hy, hs, hs, hs/6); ctx.fill();
+      } else {
+        ctx.fillRect(hx, hy, hs, hs);
+      }
+      // Headshot border.
+      if (getCheck('headshotBorder')) {
+        const ac = hexToRgb(accent);
+        ctx.strokeStyle = `rgba(${ac[0]},${ac[1]},${ac[2]},0.8)`;
+        ctx.lineWidth = 2;
+        if (hsShape === 'circle') {
+          ctx.beginPath(); ctx.arc(hx + hs/2, hy + hs/2, hs/2, 0, Math.PI*2); ctx.stroke();
+        } else if (hsShape === 'rounded') {
+          roundRect(ctx, hx, hy, hs, hs, hs/6); ctx.stroke();
+        } else {
+          ctx.strokeRect(hx, hy, hs, hs);
+        }
+      }
+      // Initials.
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${hs*0.35}px ${fontFamily}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const initials = bar.player.split(' ').map(w=>w[0]).join('');
+      ctx.fillText(initials, hx + hs/2, hy + hs/2);
+    }
+
+    // Rank numbers.
+    if (getCheck('showRankNumbers') && !getCheck('rankGiantWatermark')) {
+      const rankText = (getVal('labelCase') === 'normal') ? String(i+1) : String(i+1).padStart(2,'0');
+      ctx.font = `bold ${barH*0.35}px ${fontFamily}`;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = `rgba(${hexToRgb(accent).join(',')},0.6)`;
+      // Measure name width.
+      let name = bar.player;
+      if (labelCase === 'upper') name = name.toUpperCase();
+      ctx.font = `600 ${barH*0.35}px ${fontFamily}`;
+      const nw = ctx.measureText(name).width;
+      ctx.font = `bold ${barH*0.35}px ${fontFamily}`;
+      ctx.fillText(rankText, x - nw - 14, y + barH/2);
+    }
+
+    // Player name.
+    let name = bar.player;
+    if (labelCase === 'upper') name = name.toUpperCase();
+    else if (labelCase === 'title') name = name.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+    ctx.font = `600 ${barH * 0.35}px ${fontFamily}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    const tc = hexToRgb(getVal('accentColorText') || '#fff');
+    ctx.fillStyle = `rgba(${tc[0]},${tc[1]},${tc[2]},0.9)`;
+    ctx.fillText(name, x - 8, y + barH / 2);
+
+    // Value.
+    const suffix = getVal('valueSuffix');
+    const valText = bar.value.toLocaleString() + (suffix ? ' ' + suffix : '');
+    ctx.font = `${barH * 0.3}px ${fontFamily}`;
+    ctx.textAlign = 'left';
+    const vw = ctx.measureText(valText).width;
+    if (barW > vw + 16) {
+      ctx.textAlign = 'right';
+      ctx.fillStyle = `rgba(255,255,255,0.9)`;
+      ctx.fillText(valText, x + barW - 8, y + barH / 2);
+    } else {
+      ctx.fillStyle = `rgba(${hexToRgb(getVal('accentSecondaryText')||'#888').join(',')},0.8)`;
+      ctx.fillText(valText, x + barW + 8, y + barH / 2);
+    }
+  }
+
+  // Date.
+  ctx.font = `bold ${H * 0.065}px ${fontFamily}`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillText('Jan 15, 2024', W - marginRight - 10, barAreaBottom + H * 0.1);
+
+  // Title.
+  const title = getVal('title');
+  const subtitle = getVal('subtitle');
+  const titleC = hexToRgb(accent);
+  if (title) {
+    ctx.font = `bold ${H * 0.04}px ${fontFamily}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = `rgba(${titleC[0]},${titleC[1]},${titleC[2]},0.95)`;
+    ctx.fillText(title, marginRight + 10, H * 0.04);
+  }
+  if (subtitle) {
+    ctx.font = `${H * 0.024}px ${fontFamily}`;
+    ctx.fillStyle = `rgba(${hexToRgb(getVal('accentSecondaryText')||'#888').join(',')},0.8)`;
+    ctx.fillText(subtitle, marginRight + 10, H * 0.04 + H * 0.048);
+  }
+
+  // Branding tag.
+  if (getCheck('showBrandingTag') && getVal('brandingText')) {
+    const bt = getVal('brandingText');
+    const bc = hexToRgb(getVal('brandingColorText') || '#ff0000');
+    ctx.font = `bold ${H * 0.013}px ${fontFamily}`;
+    const bw = ctx.measureText(bt).width;
+    const bx = marginRight + 10, by = H * 0.04 + H * 0.085;
+    ctx.fillStyle = `rgba(${bc[0]},${bc[1]},${bc[2]},0.85)`;
+    roundRect(ctx, bx - 6, by - 3, bw + 12, H * 0.02 + 6, 3);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textBaseline = 'top';
+    ctx.fillText(bt, bx, by);
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w/2, h/2);
+  if (r < 1) { ctx.beginPath(); ctx.rect(x, y, w, h); return; }
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+// File upload.
+const uploadZone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+
+function handleFile(file) {
+  uploadedFile = file;
+  document.getElementById('fileName').textContent = file.name;
+  update();
+}
+
+// Generate video via server.
+async function generateVideo() {
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+
+  const pb = document.getElementById('progressBar');
+  const pf = document.getElementById('progressFill');
+  const st = document.getElementById('statusText');
+  pb.style.display = 'block';
+  pf.style.width = '0%';
+  st.textContent = 'Starting...';
+
+  const config = {
+    theme: currentTheme,
+    preset: getVal('preset'),
+    fps: parseInt(getVal('fps')),
+    duration: parseInt(getVal('duration')),
+    top_n: parseInt(getVal('topN')),
+    title: getVal('title'),
+    subtitle: getVal('subtitle'),
+    watermark: getVal('watermark'),
+  };
+
+  try {
+    const formData = new FormData();
+    formData.append('config', JSON.stringify(config));
+    if (uploadedFile) formData.append('file', uploadedFile);
+
+    const r = await fetch('/api/generate', { method: 'POST', body: formData });
+    const { job_id, output } = await r.json();
+
+    // Listen for progress via SSE.
+    const es = new EventSource(`/api/progress/${job_id}`);
+    es.addEventListener('progress', e => {
+      pf.style.width = e.data + '%';
+      st.textContent = `Encoding: ${e.data}%`;
+    });
+    es.addEventListener('status', e => { st.textContent = e.data; });
+    es.addEventListener('done', e => {
+      es.close();
+      pf.style.width = '100%';
+      st.innerHTML = `Done! <a href="/api/download/${output}" download>Download ${output}</a>`;
+      btn.disabled = false;
+      btn.textContent = 'Generate Video';
+    });
+    es.addEventListener('error', e => {
+      es.close();
+      st.textContent = 'Error: ' + (e.data || 'connection lost');
+      btn.disabled = false;
+      btn.textContent = 'Generate Video';
+    });
+  } catch(e) {
+    st.textContent = 'Error: ' + e.message + ' (is the server running?)';
+    btn.disabled = false;
+    btn.textContent = 'Generate Video';
+  }
+}
+
+// Init.
+loadThemes();
+update();
+</script>
+</body>
+</html>
