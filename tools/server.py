@@ -6,6 +6,7 @@ Open: http://localhost:8765
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import queue
@@ -22,7 +23,11 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 import io
 
+from PIL import Image as PILImage
+
+from bar_race.animate import BarState, FrameState
 from bar_race.config import Config
+from bar_race.render import FrameRenderer, _headshot_cache
 from bar_race.themes import THEMES, get_theme, list_themes
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +40,7 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 _progress: dict[str, queue.Queue] = {}
 
 
-def _run_pipeline(job_id: str, cfg: Config, input_path: str) -> None:
+def _run_pipeline(job_id: str, cfg: Config, input_path: str, temp_theme_slug: str | None = None) -> None:
     """Run the video pipeline in a background thread, posting progress."""
     q = _progress[job_id]
     try:
@@ -91,6 +96,9 @@ def _run_pipeline(job_id: str, cfg: Config, input_path: str) -> None:
         import traceback
         traceback.print_exc()
         q.put({"event": "error", "data": str(e)})
+    finally:
+        if temp_theme_slug:
+            THEMES.pop(temp_theme_slug, None)
 
 
 def _parse_multipart(content_type: str, body: bytes) -> dict:
@@ -127,6 +135,42 @@ def _parse_multipart(content_type: str, body: bytes) -> dict:
             "filename": filename_match.group(1) if filename_match else None,
         }
     return result
+
+
+_SAMPLE_PLAYERS = [
+    ("Shai Gilgeous-Alexander", "OKC", 1500),
+    ("Luka Doncic", "DAL", 1400),
+    ("Giannis Antetokounmpo", "MIL", 1300),
+    ("Jayson Tatum", "BOS", 1200),
+    ("Kevin Durant", "PHX", 1100),
+    ("LeBron James", "LAL", 1050),
+    ("Anthony Edwards", "MIN", 1000),
+    ("Nikola Jokic", "DEN", 950),
+    ("Devin Booker", "PHX", 900),
+    ("Trae Young", "ATL", 850),
+]
+
+
+def _sample_frame(top_n: int = 10) -> FrameState:
+    """Build a synthetic FrameState for preview rendering."""
+    bars = []
+    for i, (player, team, val) in enumerate(_SAMPLE_PLAYERS[:top_n]):
+        bars.append(BarState(player=player, team=team, value=float(val), rank=float(i)))
+    mx = max(b.value for b in bars) * 1.12
+    return FrameState(bars=bars, date_label="Jan 15, 2024", progress=0.5, max_value=mx)
+
+
+def _make_theme_with_overrides(slug: str, overrides: dict) -> str:
+    """Copy the base theme, apply overrides, register as temp, return slug."""
+    base = get_theme(slug)
+    theme = copy.copy(base)
+    for key, val in overrides.items():
+        if hasattr(theme, key):
+            setattr(theme, key, val)
+    temp_slug = f"_tmp_{uuid.uuid4().hex[:8]}"
+    theme.slug = temp_slug
+    THEMES[temp_slug] = theme
+    return temp_slug
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -248,6 +292,64 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
 
+        if parsed.path == "/api/preview":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            config = json.loads(body)
+
+            theme_slug = config.get("theme", "midnight-premium")
+            overrides = config.get("overrides", {})
+            temp_slug = None
+
+            try:
+                if overrides:
+                    temp_slug = _make_theme_with_overrides(theme_slug, overrides)
+                else:
+                    temp_slug = None
+
+                _headshot_cache.clear()
+
+                cfg = Config(
+                    output="",
+                    preset=config.get("preset", "youtube"),
+                    theme=temp_slug or theme_slug,
+                    top_n=int(config.get("top_n", 10)),
+                    title=config.get("title", ""),
+                    subtitle=config.get("subtitle", ""),
+                    watermark=config.get("watermark", ""),
+                    headshot_dir=str(ASSETS_DIR / "headshots"),
+                    logo_dir=str(ASSETS_DIR / "logos"),
+                )
+
+                renderer = FrameRenderer(cfg)
+                frame = _sample_frame(cfg.top_n)
+                img = renderer.render(frame)
+
+                # Resize for preview.
+                preset = cfg.get_preset()
+                pw = min(preset.width, 960)
+                ph = int(pw * preset.height / preset.width)
+                img = img.convert("RGB").resize((pw, ph), PILImage.LANCZOS)
+
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                data = buf.getvalue()
+
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self.send_error(500, str(e))
+            finally:
+                if temp_slug:
+                    THEMES.pop(temp_slug, None)
+            return
+
         if parsed.path == "/api/generate":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
@@ -287,11 +389,19 @@ class Handler(SimpleHTTPRequestHandler):
             output_name = config.get("output", f"output_{uuid.uuid4().hex[:8]}.mp4")
             output_path = str(PROJECT_ROOT / output_name)
 
+            # Apply theme overrides if present.
+            theme_slug = config.get("theme", "midnight-premium")
+            theme_overrides = config.get("theme_overrides", {})
+            temp_slug = None
+            if theme_overrides:
+                temp_slug = _make_theme_with_overrides(theme_slug, theme_overrides)
+                theme_slug = temp_slug
+
             cfg = Config(
                 input_path=input_path,
                 output=output_path,
                 preset=config.get("preset", "youtube"),
-                theme=config.get("theme", "midnight-premium"),
+                theme=theme_slug,
                 fps=int(config.get("fps", 60)),
                 duration_sec=float(config.get("duration", 30)),
                 top_n=int(config.get("top_n", 10)),
@@ -307,7 +417,7 @@ class Handler(SimpleHTTPRequestHandler):
 
             thread = threading.Thread(
                 target=_run_pipeline,
-                args=(job_id, cfg, input_path),
+                args=(job_id, cfg, input_path, temp_slug),
                 daemon=True,
             )
             thread.start()

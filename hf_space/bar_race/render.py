@@ -432,8 +432,8 @@ def _remove_white_halo(img: Image.Image) -> Image.Image:
     r, g, b, a = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2], arr[:, :, 3]
 
     # Detect semi-transparent white-ish fringe pixels.
-    is_whitish = (r > 200) & (g > 200) & (b > 200)
-    is_semi = (a > 10) & (a < 200)
+    is_whitish = (r > 180) & (g > 180) & (b > 180)
+    is_semi = (a > 10) & (a < 220)
     arr[is_whitish & is_semi, 3] = 0  # make fully transparent
 
     # Erode alpha by 2 pixels.
