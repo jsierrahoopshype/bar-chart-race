@@ -43,76 +43,53 @@ def _run_pipeline(job_id: str, cfg: Config, input_path: str) -> None:
         from bar_race.normalize import normalize
         from bar_race.animate import build_keyframes, interpolate_frames
         from bar_race.render import FrameRenderer
+        from bar_race.pipeline import _compute_progressive_max
+        from bar_race.encode import encode
 
         q.put({"event": "status", "data": "Loading data..."})
-        df = load(input_path)
+        df = load(path=input_path)
+
         q.put({"event": "status", "data": "Normalizing..."})
-        ndf = normalize(df, cfg)
+        ndf = normalize(df)
 
         q.put({"event": "status", "data": "Building keyframes..."})
         kfs = build_keyframes(ndf, cfg.top_n)
 
-        preset = cfg.get_preset()
-        total_frames = int(cfg.fps * cfg.duration_sec)
-        seg_duration = cfg.duration_sec / max(len(kfs) - 1, 1)
+        body_frames = int(cfg.fps * cfg.duration_sec)
+        frames = interpolate_frames(kfs, total_frames=body_frames, top_n=cfg.top_n)
+        _compute_progressive_max(frames, headroom=0.12)
 
-        q.put({"event": "status", "data": "Initializing renderer..."})
+        total = len(frames)
+        q.put({"event": "status", "data": f"Rendering {total} frames..."})
         renderer = FrameRenderer(cfg)
+        preset = cfg.get_preset()
 
-        q.put({"event": "status", "data": "Encoding video..."})
+        frame_count = 0
 
-        # Build ffmpeg command.
-        import subprocess
-        cmd = [
-            "ffmpeg", "-y",
-            "-f", "rawvideo",
-            "-vcodec", "rawvideo",
-            "-pix_fmt", "rgb24",
-            "-s", f"{preset.width}x{preset.height}",
-            "-r", str(cfg.fps),
-            "-i", "-",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "18",
-            "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart",
-            cfg.output,
-        ]
-        proc = subprocess.Popen(
-            cmd, stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-
-        frame_idx = 0
-        max_value = 0.0
-        for i in range(len(kfs) - 1):
-            frames = interpolate_frames(kfs[i], kfs[i + 1],
-                                        fps=cfg.fps, seg_duration=seg_duration)
+        def frame_gen():
+            nonlocal frame_count
             for fs in frames:
-                mv = fs.max_value
-                if mv > max_value:
-                    max_value = mv
-                from bar_race.animate import FrameState
-                patched = FrameState(
-                    bars=fs.bars,
-                    date_label=fs.date_label,
-                    progress=frame_idx / max(total_frames, 1),
-                    max_value=max_value,
-                )
-                raw = renderer.render_rgb_bytes(patched)
-                proc.stdin.write(raw)  # type: ignore[union-attr]
-                frame_idx += 1
-
-                if frame_idx % 10 == 0:
-                    pct = int(100 * frame_idx / total_frames)
+                yield renderer.render_rgb_bytes(fs)
+                frame_count += 1
+                if frame_count % 10 == 0:
+                    pct = int(100 * frame_count / max(total, 1))
                     q.put({"event": "progress", "data": str(pct)})
 
-        proc.stdin.close()  # type: ignore[union-attr]
-        proc.wait()
+        q.put({"event": "status", "data": "Encoding video..."})
+        encode(
+            frames=frame_gen(),
+            total_frames=total,
+            preset=preset,
+            output=cfg.output,
+            fps=cfg.fps,
+            bitrate=cfg.bitrate,
+        )
 
         q.put({"event": "progress", "data": "100"})
         q.put({"event": "done", "data": cfg.output})
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         q.put({"event": "error", "data": str(e)})
 
 
@@ -153,6 +130,8 @@ def _parse_multipart(content_type: str, body: bytes) -> dict:
 
 
 class Handler(SimpleHTTPRequestHandler):
+    # No request timeout — allow renders to run as long as needed.
+    timeout = None
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -235,7 +214,7 @@ class Handler(SimpleHTTPRequestHandler):
             q = _progress[job_id]
             while True:
                 try:
-                    msg = q.get(timeout=60)
+                    msg = q.get(timeout=600)
                     line = f"event: {msg['event']}\ndata: {msg['data']}\n\n"
                     self.wfile.write(line.encode())
                     self.wfile.flush()
@@ -319,10 +298,8 @@ class Handler(SimpleHTTPRequestHandler):
                 title=config.get("title", ""),
                 subtitle=config.get("subtitle", ""),
                 watermark=config.get("watermark", ""),
-                headshot_dir=config.get("headshot_dir",
-                                        str(ASSETS_DIR / "headshots")),
-                logo_dir=config.get("logo_dir",
-                                    str(ASSETS_DIR / "logos")),
+                headshot_dir=str(ASSETS_DIR / "headshots"),
+                logo_dir=str(ASSETS_DIR / "logos"),
             )
 
             job_id = uuid.uuid4().hex[:12]
@@ -363,6 +340,7 @@ class Handler(SimpleHTTPRequestHandler):
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
     server = HTTPServer(("0.0.0.0", port), Handler)
+    server.timeout = None
     print(f"\n  Bar Chart Race Customizer")
     print(f"  http://localhost:{port}\n")
     try:

@@ -152,7 +152,7 @@ a { color:var(--accent2); }
         <input type="range" id="fps" min="24" max="60" value="30" step="6" oninput="document.getElementById('fpsVal').textContent=this.value;update()">
       </div>
       <div class="field"><label>Duration (sec) <span class="range-val" id="durVal">30</span></label>
-        <input type="range" id="duration" min="10" max="60" value="30" oninput="document.getElementById('durVal').textContent=this.value;update()">
+        <input type="range" id="duration" min="10" max="300" value="30" oninput="document.getElementById('durVal').textContent=this.value;update()">
       </div>
     </div>
 
@@ -885,7 +885,8 @@ async function generateVideo() {
     const r = await fetch('/api/generate', { method: 'POST', body: formData });
     const { job_id, output } = await r.json();
 
-    // Listen for progress via SSE.
+    // Listen for progress via SSE (no timeout — runs until done/error).
+    let finished = false;
     const es = new EventSource(`/api/progress/${job_id}`);
     es.addEventListener('progress', e => {
       pf.style.width = e.data + '%';
@@ -893,6 +894,7 @@ async function generateVideo() {
     });
     es.addEventListener('status', e => { st.textContent = e.data; });
     es.addEventListener('done', e => {
+      finished = true;
       es.close();
       pf.style.width = '100%';
       st.innerHTML = `Done! <a href="/api/download/${output}" download>Download ${output}</a>`;
@@ -900,10 +902,17 @@ async function generateVideo() {
       btn.textContent = 'Generate Video';
     });
     es.addEventListener('error', e => {
-      es.close();
-      st.textContent = 'Error: ' + (e.data || 'connection lost');
-      btn.disabled = false;
-      btn.textContent = 'Generate Video';
+      // Only treat as error if we haven't finished — EventSource fires
+      // generic error events on close which we should ignore.
+      if (finished) return;
+      // Check if the data field has a real error message.
+      if (e.data) {
+        es.close();
+        st.textContent = 'Error: ' + e.data;
+        btn.disabled = false;
+        btn.textContent = 'Generate Video';
+      }
+      // Otherwise it's a transient reconnect — let EventSource retry.
     });
   } catch(e) {
     st.textContent = 'Error: ' + e.message + ' (is the server running?)';
