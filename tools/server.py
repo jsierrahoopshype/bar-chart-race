@@ -166,7 +166,11 @@ def _sample_frame(top_n: int = 10) -> FrameState:
 
 def _make_theme_with_overrides(slug: str, overrides: dict) -> str:
     """Copy the base theme, apply overrides, register as temp, return slug."""
-    base = get_theme(slug)
+    try:
+        base = get_theme(slug)
+    except ValueError:
+        # Unknown theme (e.g. "custom-main" from browser localStorage).
+        base = get_theme("midnight-premium")
     theme = copy.copy(base)
     for key, val in overrides.items():
         if hasattr(theme, key):
@@ -447,7 +451,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def log_message(self, format, *args):
         # Quieter logs.
-        if "/api/progress" not in (args[0] if args else ""):
+        if "/api/progress" not in str(args[0] if args else ""):
             super().log_message(format, *args)
 
 
