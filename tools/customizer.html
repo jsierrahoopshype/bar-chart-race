@@ -564,7 +564,11 @@ function applyTheme(slug) {
   if (!t) return;
   currentTheme = slug;
 
-  // Apply all theme values to UI controls.
+  // Theme switching changes the LOOK (colors, effects, decorations)
+  // but preserves user CONTENT/FORMAT settings (title, preset, fps,
+  // duration, top_n, label_position, headshot_shape/style/border).
+
+  // --- Visual properties: APPLY from theme ---
   const bgColors = t.bg_colors || ['#0f0c29','#302b63'];
   setColor('bgColor1', bgColors[0]);
   setColor('bgColor2', bgColors[1] || bgColors[0]);
@@ -593,18 +597,18 @@ function applyTheme(slug) {
   setCheck('rankGiantWatermark', t.rank_giant_watermark);
   setCheck('vignette', t.vignette);
   setCheck('noise', t.noise);
-  setCheck('headshotBorder', t.headshot_border);
   setCheck('showBrandingTag', t.show_branding_tag);
 
   setVal('fontFamily', t.font_family || 'sans');
   setVal('labelCase', t.label_case || 'normal');
-  setVal('labelPosition', t.label_position || 'outside');
-  setVal('headshotShape', t.headshot_shape || 'circle');
-  setVal('headshotStyle', t.headshot_style || 'circle');
   setVal('borderFrame', t.border_frame || 'none');
   setVal('valueSuffix', t.value_suffix || '');
   setVal('brandingText', t.branding_text || '');
   setColor('brandingColor', t.branding_color || '#ff0000');
+
+  // --- User properties: PRESERVED (not overwritten) ---
+  // title, subtitle, watermark, preset, topN, fps, duration,
+  // labelPosition, headshotShape, headshotStyle, headshotBorder
 
   // Highlight active card.
   document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('active'));
