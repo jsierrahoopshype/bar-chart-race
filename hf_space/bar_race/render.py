@@ -426,11 +426,97 @@ def _draw_bar_gradient(
 
 _headshot_cache: dict[str, Optional[Image.Image]] = {}
 
+# ---------------------------------------------------------------------------
+# Fuzzy headshot name matching
+# ---------------------------------------------------------------------------
 
-def _ascii_fold(name: str) -> str:
-    """Fold Unicode characters to ASCII equivalents (e.g. ć→c, ö→o)."""
-    nfkd = unicodedata.normalize("NFKD", name)
-    return "".join(c for c in nfkd if not unicodedata.combining(c))
+# Directory index: built once per directory, maps normalised keys → Path.
+_hs_dir_index: dict[str, dict[str, Path]] = {}
+_hs_last_name_index: dict[str, dict[str, list[Path]]] = {}
+
+
+def _to_ascii(s: str) -> str:
+    """Fold Unicode to ASCII (e.g. Dončić → Doncic, Şengün → Sengun)."""
+    return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+
+
+def _normalize_key(name: str) -> str:
+    """Normalise a player name for fuzzy matching.
+
+    Pipeline: ASCII-fold → strip punctuation → lowercase → collapse spaces.
+    """
+    s = _to_ascii(name)
+    s = s.replace("'", "").replace("-", " ").replace(".", "")
+    return " ".join(s.lower().split())
+
+
+def _build_hs_index(directory: str) -> None:
+    """Scan *directory* once and populate the lookup indices."""
+    if directory in _hs_dir_index:
+        return
+    idx: dict[str, Path] = {}
+    last_idx: dict[str, list[Path]] = {}
+    base = Path(directory)
+    for f in base.iterdir():
+        if not f.is_file() or f.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+            continue
+        if f.stem.startswith("_"):
+            continue
+        stem = f.stem
+        # Key 1: exact stem (case-sensitive).
+        idx[stem] = f
+        # Key 2: normalised key (lowercase, ASCII, no punctuation).
+        nk = _normalize_key(stem)
+        idx[nk] = f
+        # Key 3: lowercase stem (case-insensitive exact).
+        idx[stem.lower()] = f
+        # Last-name index.
+        parts = stem.split()
+        if parts:
+            ln = parts[-1].lower()
+            last_idx.setdefault(ln, []).append(f)
+    _hs_dir_index[directory] = idx
+    _hs_last_name_index[directory] = last_idx
+
+
+def _find_headshot_file(player: str, directory: str) -> Optional[Path]:
+    """Find a headshot file for *player* using fuzzy matching.
+
+    Lookup order:
+      1. Exact filename match
+      2. ASCII-folded + punctuation-stripped normalised key
+      3. Case-insensitive match
+      4. Last-name-only match (if exactly one file matches)
+    The directory is indexed once; all lookups are O(1).
+    """
+    _build_hs_index(directory)
+    idx = _hs_dir_index[directory]
+
+    # 1. Exact stem.
+    hit = idx.get(player)
+    if hit is not None:
+        return hit
+
+    # 2. Normalised key (ASCII-folded, no punctuation, lowercase).
+    nk = _normalize_key(player)
+    hit = idx.get(nk)
+    if hit is not None:
+        return hit
+
+    # 3. Case-insensitive.
+    hit = idx.get(player.lower())
+    if hit is not None:
+        return hit
+
+    # 4. Try without suffixes (Jr., III, II, etc.).
+    stripped = _normalize_key(player)
+    for suffix in (" jr", " sr", " iii", " ii", " iv"):
+        if stripped.endswith(suffix):
+            hit = idx.get(stripped[: -len(suffix)].rstrip())
+            if hit is not None:
+                return hit
+
+    return None
 
 
 def _remove_white_halo(img: Image.Image) -> Image.Image:
@@ -465,61 +551,49 @@ def _load_headshot(
         _headshot_cache[cache_key] = None
         return None
 
-    base = Path(directory)
-    # Try exact name first, then ASCII-folded fallback (e.g. Dončić → Doncic).
-    names_to_try = [player]
-    folded = _ascii_fold(player)
-    if folded != player:
-        names_to_try.append(folded)
-
+    filepath = _find_headshot_file(player, directory)
     result = None
-    for name_variant in names_to_try:
-        if result is not None:
-            break
-        for ext in (".png", ".jpg", ".jpeg", ".webp"):
-            candidate = base / f"{name_variant}{ext}"
-            if candidate.is_file():
-                img = Image.open(candidate).convert("RGBA").resize(
-                    (size, size), Image.LANCZOS
-                )
-                img = _remove_white_halo(img)
+    if filepath is not None:
+        img = Image.open(filepath).convert("RGBA").resize(
+            (size, size), Image.LANCZOS
+        )
+        img = _remove_white_halo(img)
 
-                # Shape mask.
-                mask = Image.new("L", (size, size), 0)
-                md = ImageDraw.Draw(mask)
-                if theme.headshot_shape == "circle":
-                    md.ellipse([0, 0, size - 1, size - 1], fill=255)
-                elif theme.headshot_shape == "rounded":
-                    md.rounded_rectangle([0, 0, size - 1, size - 1],
-                                         radius=size // 6, fill=255)
-                else:  # square
-                    md.rectangle([0, 0, size - 1, size - 1], fill=255)
-                img.putalpha(mask)
+        # Shape mask.
+        mask = Image.new("L", (size, size), 0)
+        md = ImageDraw.Draw(mask)
+        if theme.headshot_shape == "circle":
+            md.ellipse([0, 0, size - 1, size - 1], fill=255)
+        elif theme.headshot_shape == "rounded":
+            md.rounded_rectangle([0, 0, size - 1, size - 1],
+                                 radius=size // 6, fill=255)
+        else:  # square
+            md.rectangle([0, 0, size - 1, size - 1], fill=255)
+        img.putalpha(mask)
 
-                # Border.
-                if theme.headshot_border:
-                    bw = max(2, size // 30)
-                    border_c = _hex_to_rgb(theme.accent_color)
-                    if theme.headshot_border_color == "team" and team_color:
-                        border_c = team_color
-                    elif theme.headshot_border_color not in ("team", "accent"):
-                        border_c = _hex_to_rgb(theme.headshot_border_color)
-                    bordered = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-                    bd = ImageDraw.Draw(bordered)
-                    if theme.headshot_shape == "circle":
-                        bd.ellipse([0, 0, size - 1, size - 1],
-                                   outline=(*border_c, 220), width=bw)
-                    elif theme.headshot_shape == "rounded":
-                        bd.rounded_rectangle([0, 0, size - 1, size - 1],
-                                             radius=size // 6,
-                                             outline=(*border_c, 220), width=bw)
-                    else:
-                        bd.rectangle([0, 0, size - 1, size - 1],
+        # Border.
+        if theme.headshot_border:
+            bw = max(2, size // 30)
+            border_c = _hex_to_rgb(theme.accent_color)
+            if theme.headshot_border_color == "team" and team_color:
+                border_c = team_color
+            elif theme.headshot_border_color not in ("team", "accent"):
+                border_c = _hex_to_rgb(theme.headshot_border_color)
+            bordered = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            bd = ImageDraw.Draw(bordered)
+            if theme.headshot_shape == "circle":
+                bd.ellipse([0, 0, size - 1, size - 1],
+                           outline=(*border_c, 220), width=bw)
+            elif theme.headshot_shape == "rounded":
+                bd.rounded_rectangle([0, 0, size - 1, size - 1],
+                                     radius=size // 6,
                                      outline=(*border_c, 220), width=bw)
-                    img = Image.alpha_composite(img, bordered)
+            else:
+                bd.rectangle([0, 0, size - 1, size - 1],
+                             outline=(*border_c, 220), width=bw)
+            img = Image.alpha_composite(img, bordered)
 
-                result = img
-                break
+        result = img
 
     _headshot_cache[cache_key] = result
     return result
@@ -786,25 +860,29 @@ class FrameRenderer:
 
                     # Draw a colored ring behind the headshot to hide
                     # any white fringe artifacts at the edges.
-                    ring_pad = 3  # ring extends 3 px beyond headshot
+                    ring_pad = 4  # ring extends 4 px beyond headshot
                     ring_size = hs_size + ring_pad * 2
                     ring = Image.new("RGBA", (ring_size, ring_size), (0, 0, 0, 0))
                     rd = ImageDraw.Draw(ring)
                     if th.headshot_shape == "circle":
+                        # Dark outline (1px) then filled color ring.
                         rd.ellipse(
                             [0, 0, ring_size - 1, ring_size - 1],
                             fill=(*base_rgb, 255),
+                            outline=(0, 0, 0, 77),  # ~0.3 opacity
                         )
                     elif th.headshot_shape == "rounded":
                         rd.rounded_rectangle(
                             [0, 0, ring_size - 1, ring_size - 1],
                             radius=ring_size // 6,
                             fill=(*base_rgb, 255),
+                            outline=(0, 0, 0, 77),
                         )
                     else:
                         rd.rectangle(
                             [0, 0, ring_size - 1, ring_size - 1],
                             fill=(*base_rgb, 255),
+                            outline=(0, 0, 0, 77),
                         )
                     img.paste(ring, (hs_x - ring_pad, hs_y - ring_pad), ring)
 
