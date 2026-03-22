@@ -165,15 +165,15 @@ a { color:var(--accent2); }
           <select id="preset" onchange="update()">
             <option value="youtube">YouTube (1920x1080)</option>
             <option value="reels">Reels (1080x1920)</option>
-            <option value="square">Square (1080x1080)</option>
+            <option value="square" selected>Square (1080x1080)</option>
           </select>
         </div>
         <div class="field"><label>Top N</label>
           <input type="number" id="topN" value="10" min="3" max="15" onchange="update()">
         </div>
       </div>
-      <div class="field"><label>FPS <span class="range-val" id="fpsVal">30</span></label>
-        <input type="range" id="fps" min="24" max="60" value="30" step="6" oninput="document.getElementById('fpsVal').textContent=this.value;update()">
+      <div class="field"><label>FPS <span class="range-val" id="fpsVal">60</span></label>
+        <input type="range" id="fps" min="24" max="60" value="60" step="6" oninput="document.getElementById('fpsVal').textContent=this.value;update()">
       </div>
       <div class="field"><label>Duration (sec) <span class="range-val" id="durVal">30</span></label>
         <input type="range" id="duration" min="10" max="300" value="30" oninput="document.getElementById('durVal').textContent=this.value;update()">
@@ -221,8 +221,8 @@ a { color:var(--accent2); }
     <!-- Bar Style -->
     <div class="section">
       <div class="section-title">Bar Style</div>
-      <div class="field"><label>Bar Radius <span class="range-val" id="barRadiusVal">10</span></label>
-        <input type="range" id="barRadius" min="0" max="30" value="10" oninput="document.getElementById('barRadiusVal').textContent=this.value;update()">
+      <div class="field"><label>Bar Radius <span class="range-val" id="barRadiusVal">6</span></label>
+        <input type="range" id="barRadius" min="0" max="30" value="6" oninput="document.getElementById('barRadiusVal').textContent=this.value;update()">
       </div>
       <div class="field"><label>Bar Opacity <span class="range-val" id="barOpacityVal">1.0</span></label>
         <input type="range" id="barOpacity" min="0.3" max="1.0" value="1.0" step="0.05" oninput="document.getElementById('barOpacityVal').textContent=parseFloat(this.value).toFixed(2);update()">
@@ -236,7 +236,7 @@ a { color:var(--accent2); }
     <!-- Leader Effects -->
     <div class="section">
       <div class="section-title">Leader Effects</div>
-      <label class="toggle"><input type="checkbox" id="leaderGlow" checked onchange="update()"> Glow</label>
+      <label class="toggle"><input type="checkbox" id="leaderGlow" onchange="update()"> Glow</label>
       <label class="toggle"><input type="checkbox" id="leaderOutline" onchange="update()"> Outline</label>
       <label class="toggle"><input type="checkbox" id="leaderUnderline" onchange="update()"> Underline</label>
       <label class="toggle"><input type="checkbox" id="leaderBgHighlight" onchange="update()"> Row Highlight</label>
@@ -265,8 +265,8 @@ a { color:var(--accent2); }
       <div class="field"><label>Value Suffix</label><input type="text" id="valueSuffix" value="" placeholder="e.g. PTS" oninput="update()"></div>
       <div class="field"><label>Label Position</label>
         <select id="labelPosition" onchange="update()">
-          <option value="outside">Outside (default)</option>
-          <option value="inside">Inside bar</option>
+          <option value="outside">Outside</option>
+          <option value="inside" selected>Inside bar</option>
           <option value="outside-right">Outside right</option>
         </select>
       </div>
@@ -286,11 +286,11 @@ a { color:var(--accent2); }
         </div>
         <div class="field"><label>Style</label>
           <select id="headshotStyle" onchange="update()">
-            <option value="circle">Circle (default)</option>
+            <option value="circle">Circle</option>
             <option value="shrink-pad">Shrink Pad</option>
             <option value="vignette">Vignette</option>
             <option value="hard-alpha">Hard Alpha</option>
-            <option value="rectangle">Rectangle</option>
+            <option value="rectangle" selected>Rectangle</option>
           </select>
         </div>
       </div>
@@ -523,7 +523,8 @@ async function loadThemes() {
   }
 
   renderThemeGrid();
-  applyTheme('midnight-premium');
+  // Don't apply a theme on load — use the HTML default values as-is.
+  update();
 }
 
 function renderThemeGrid() {
