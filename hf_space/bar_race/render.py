@@ -450,6 +450,22 @@ def _normalize_key(name: str) -> str:
     return " ".join(s.lower().split())
 
 
+def _first_last_key(name: str) -> str:
+    """Extract 'first last' from a name, skipping middle parts and suffixes."""
+    parts = _normalize_key(name).split()
+    # Strip trailing suffixes.
+    while parts and parts[-1] in ("jr", "sr", "ii", "iii", "iv"):
+        parts.pop()
+    if len(parts) >= 2:
+        return f"{parts[0]} {parts[-1]}"
+    return " ".join(parts)
+
+
+def _nospaces_key(name: str) -> str:
+    """Normalise then remove all spaces (catches 'Jo Jo' vs 'Jojo')."""
+    return _normalize_key(name).replace(" ", "")
+
+
 def _build_hs_index(directory: str) -> None:
     """Scan *directory* once and populate the lookup indices."""
     if directory in _hs_dir_index:
@@ -467,9 +483,17 @@ def _build_hs_index(directory: str) -> None:
         idx[stem] = f
         # Key 2: normalised key (lowercase, ASCII, no punctuation).
         nk = _normalize_key(stem)
-        idx[nk] = f
+        idx.setdefault(nk, f)
         # Key 3: lowercase stem (case-insensitive exact).
-        idx[stem.lower()] = f
+        idx.setdefault(stem.lower(), f)
+        # Key 4: no-spaces key (catches "Jo Jo" ↔ "Jojo").
+        idx.setdefault(_nospaces_key(stem), f)
+        # Key 5: first+last only (skips middle initials / suffixes).
+        idx.setdefault(_first_last_key(stem), f)
+        # Key 6: name-order reversal (last first → first last).
+        nk_parts = nk.split()
+        if len(nk_parts) == 2:
+            idx.setdefault(f"{nk_parts[1]} {nk_parts[0]}", f)
         # Last-name index.
         parts = stem.split()
         if parts:
@@ -508,13 +532,59 @@ def _find_headshot_file(player: str, directory: str) -> Optional[Path]:
     if hit is not None:
         return hit
 
-    # 4. Try without suffixes (Jr., III, II, etc.).
+    # 4. No-spaces key (catches "Jo Jo White" ↔ "Jojo White").
+    hit = idx.get(_nospaces_key(player))
+    if hit is not None:
+        return hit
+
+    # 5. First+last only (skips middle initials, "World B. Free" → "world free").
+    hit = idx.get(_first_last_key(player))
+    if hit is not None:
+        return hit
+
+    # 6. Try without suffixes (Jr., III, II — CSV lacks them but file has them).
     stripped = _normalize_key(player)
     for suffix in (" jr", " sr", " iii", " ii", " iv"):
         if stripped.endswith(suffix):
             hit = idx.get(stripped[: -len(suffix)].rstrip())
             if hit is not None:
                 return hit
+
+    # 7. Try ADDING suffixes (CSV has "Larry Nance", file is "Larry Nance Jr.").
+    for suffix in (" jr", " iii", " ii"):
+        hit = idx.get(nk + suffix)
+        if hit is not None:
+            return hit
+
+    # 8. Name-order reversal ("Ha Seung-Jin" ↔ "Seung-Jin Ha").
+    nk_parts = nk.split()
+    if len(nk_parts) >= 2:
+        # Move last to front: "ha seung jin" → "jin ha seung".
+        rev1 = f"{nk_parts[-1]} {' '.join(nk_parts[:-1])}"
+        # Move first to back: "ha seung jin" → "seung jin ha".
+        rev2 = f"{' '.join(nk_parts[1:])} {nk_parts[0]}"
+        for rev in (rev1, rev2):
+            hit = idx.get(rev)
+            if hit is not None:
+                return hit
+            hit = idx.get(rev.replace(" ", ""))
+            if hit is not None:
+                return hit
+
+    # 9. Nickname / abbreviated first name fallback.
+    #    "Steve Smith" → "Steven Smith", "Clar. Weatherspoon" → "Clarence …"
+    #    Match if first 4+ chars of first name match and last name is exact.
+    if len(nk_parts) >= 2:
+        first_prefix = nk_parts[0][:4] if len(nk_parts[0]) >= 4 else nk_parts[0]
+        last = nk_parts[-1]
+        last_matches = _hs_last_name_index.get(directory, {}).get(
+            _to_ascii(last), []
+        )
+        for candidate in last_matches:
+            cstem = _normalize_key(candidate.stem)
+            cparts = cstem.split()
+            if cparts and cparts[0].startswith(first_prefix):
+                return candidate
 
     return None
 
