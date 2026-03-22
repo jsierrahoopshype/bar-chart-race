@@ -1,8 +1,11 @@
 """Build keyframes from normalised data and interpolate between them.
 
 Each *keyframe* corresponds to one unique date in the data.  Between
-consecutive keyframes we generate ``frames_per_step`` intermediate frames
-using cubic ease-in-out interpolation so that bars slide smoothly.
+consecutive keyframes we generate ``frames_per_step`` intermediate frames.
+
+Value interpolation is **linear** so bar widths grow at a constant rate
+with zero micro-pauses.  Only **rank changes** (vertical position swaps)
+use cubic ease-in-out for a smooth sliding feel.
 """
 
 from __future__ import annotations
@@ -144,8 +147,8 @@ def _interpolate_date(
 # Entry / exit timing
 # ---------------------------------------------------------------------------
 
-_ENTRY_FRACTION = 0.35   # entry uses last 35 % of the step
-_EXIT_FRACTION = 0.35    # exit uses first 35 % of the step
+_ENTRY_FRACTION = 0.42   # entry uses last ~42 % of the step (~0.5 s at 60 fps)
+_EXIT_FRACTION = 0.42    # exit uses first ~42 % of the step (~0.5 s at 60 fps)
 
 
 def interpolate_frames(
@@ -191,7 +194,7 @@ def interpolate_frames(
         for fi in range(n_frames):
             raw_t = fi / max(n_frames - 1, 1)
             t_rank = ease_in_out_cubic(raw_t)
-            t_value = ease_out_cubic(raw_t)
+            t_value = raw_t  # LINEAR — constant bar growth, no micro-pauses
 
             bars: list[BarState] = []
 
@@ -204,25 +207,25 @@ def interpolate_frames(
                 team = (a.team if a else b.team) if (a or b) else ""  # type: ignore[union-attr]
 
                 if entering:
-                    # --- slide in from bottom during last 35 % of step ---
+                    # --- slide in from bottom with correct value ---
                     entry_start = 1.0 - _ENTRY_FRACTION
                     if raw_t < entry_start:
                         continue  # not visible yet
-                    et = ease_out_cubic(
+                    et = ease_in_out_cubic(
                         (raw_t - entry_start) / _ENTRY_FRACTION
                     )
                     rank = _lerp(float(top_n) + 0.5, b.rank, et)
-                    value = _lerp(b.value * 0.2, b.value, et)
-                    alpha = min(1.0, et * 1.5)
+                    value = b.value  # show correct value immediately
+                    alpha = min(1.0, et * 2.0)
 
                 elif exiting:
-                    # --- slide out downward during first 35 % of step ---
+                    # --- slide out downward smoothly ---
                     if raw_t > _EXIT_FRACTION:
                         continue  # already gone
                     et = ease_in_out_cubic(raw_t / _EXIT_FRACTION)
                     rank = _lerp(a.rank, float(top_n) + 0.5, et)
-                    value = _lerp(a.value, a.value * 0.2, et)
-                    alpha = max(0.0, 1.0 - et * 1.5)
+                    value = a.value  # keep actual value while sliding out
+                    alpha = max(0.0, 1.0 - et * 2.0)
 
                 else:
                     # --- normal interpolation ---

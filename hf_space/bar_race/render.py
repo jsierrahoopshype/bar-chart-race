@@ -8,6 +8,7 @@ Renders each :class:`~bar_race.animate.FrameState` into a raw RGBA
 from __future__ import annotations
 
 import math
+import unicodedata
 from pathlib import Path
 from typing import Optional
 
@@ -426,6 +427,12 @@ def _draw_bar_gradient(
 _headshot_cache: dict[str, Optional[Image.Image]] = {}
 
 
+def _ascii_fold(name: str) -> str:
+    """Fold Unicode characters to ASCII equivalents (e.g. ć→c, ö→o)."""
+    nfkd = unicodedata.normalize("NFKD", name)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
+
+
 def _remove_white_halo(img: Image.Image) -> Image.Image:
     """Erode alpha by 2-3 px and remove white-fringe pixels."""
     arr = np.array(img)  # (H, W, 4)
@@ -459,51 +466,60 @@ def _load_headshot(
         return None
 
     base = Path(directory)
+    # Try exact name first, then ASCII-folded fallback (e.g. Dončić → Doncic).
+    names_to_try = [player]
+    folded = _ascii_fold(player)
+    if folded != player:
+        names_to_try.append(folded)
+
     result = None
-    for ext in (".png", ".jpg", ".jpeg", ".webp"):
-        candidate = base / f"{player}{ext}"
-        if candidate.is_file():
-            img = Image.open(candidate).convert("RGBA").resize(
-                (size, size), Image.LANCZOS
-            )
-            img = _remove_white_halo(img)
-
-            # Shape mask.
-            mask = Image.new("L", (size, size), 0)
-            md = ImageDraw.Draw(mask)
-            if theme.headshot_shape == "circle":
-                md.ellipse([0, 0, size - 1, size - 1], fill=255)
-            elif theme.headshot_shape == "rounded":
-                md.rounded_rectangle([0, 0, size - 1, size - 1],
-                                     radius=size // 6, fill=255)
-            else:  # square
-                md.rectangle([0, 0, size - 1, size - 1], fill=255)
-            img.putalpha(mask)
-
-            # Border.
-            if theme.headshot_border:
-                bw = max(2, size // 30)
-                border_c = _hex_to_rgb(theme.accent_color)
-                if theme.headshot_border_color == "team" and team_color:
-                    border_c = team_color
-                elif theme.headshot_border_color not in ("team", "accent"):
-                    border_c = _hex_to_rgb(theme.headshot_border_color)
-                bordered = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-                bd = ImageDraw.Draw(bordered)
-                if theme.headshot_shape == "circle":
-                    bd.ellipse([0, 0, size - 1, size - 1],
-                               outline=(*border_c, 220), width=bw)
-                elif theme.headshot_shape == "rounded":
-                    bd.rounded_rectangle([0, 0, size - 1, size - 1],
-                                         radius=size // 6,
-                                         outline=(*border_c, 220), width=bw)
-                else:
-                    bd.rectangle([0, 0, size - 1, size - 1],
-                                 outline=(*border_c, 220), width=bw)
-                img = Image.alpha_composite(img, bordered)
-
-            result = img
+    for name_variant in names_to_try:
+        if result is not None:
             break
+        for ext in (".png", ".jpg", ".jpeg", ".webp"):
+            candidate = base / f"{name_variant}{ext}"
+            if candidate.is_file():
+                img = Image.open(candidate).convert("RGBA").resize(
+                    (size, size), Image.LANCZOS
+                )
+                img = _remove_white_halo(img)
+
+                # Shape mask.
+                mask = Image.new("L", (size, size), 0)
+                md = ImageDraw.Draw(mask)
+                if theme.headshot_shape == "circle":
+                    md.ellipse([0, 0, size - 1, size - 1], fill=255)
+                elif theme.headshot_shape == "rounded":
+                    md.rounded_rectangle([0, 0, size - 1, size - 1],
+                                         radius=size // 6, fill=255)
+                else:  # square
+                    md.rectangle([0, 0, size - 1, size - 1], fill=255)
+                img.putalpha(mask)
+
+                # Border.
+                if theme.headshot_border:
+                    bw = max(2, size // 30)
+                    border_c = _hex_to_rgb(theme.accent_color)
+                    if theme.headshot_border_color == "team" and team_color:
+                        border_c = team_color
+                    elif theme.headshot_border_color not in ("team", "accent"):
+                        border_c = _hex_to_rgb(theme.headshot_border_color)
+                    bordered = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+                    bd = ImageDraw.Draw(bordered)
+                    if theme.headshot_shape == "circle":
+                        bd.ellipse([0, 0, size - 1, size - 1],
+                                   outline=(*border_c, 220), width=bw)
+                    elif theme.headshot_shape == "rounded":
+                        bd.rounded_rectangle([0, 0, size - 1, size - 1],
+                                             radius=size // 6,
+                                             outline=(*border_c, 220), width=bw)
+                    else:
+                        bd.rectangle([0, 0, size - 1, size - 1],
+                                     outline=(*border_c, 220), width=bw)
+                    img = Image.alpha_composite(img, bordered)
+
+                result = img
+                break
 
     _headshot_cache[cache_key] = result
     return result
@@ -767,6 +783,31 @@ class FrameRenderer:
                     else:
                         hs_x = x1 + 6
                     hs_y = y1 + (bar_h - hs_size) // 2
+
+                    # Draw a colored ring behind the headshot to hide
+                    # any white fringe artifacts at the edges.
+                    ring_pad = 3  # ring extends 3 px beyond headshot
+                    ring_size = hs_size + ring_pad * 2
+                    ring = Image.new("RGBA", (ring_size, ring_size), (0, 0, 0, 0))
+                    rd = ImageDraw.Draw(ring)
+                    if th.headshot_shape == "circle":
+                        rd.ellipse(
+                            [0, 0, ring_size - 1, ring_size - 1],
+                            fill=(*base_rgb, 255),
+                        )
+                    elif th.headshot_shape == "rounded":
+                        rd.rounded_rectangle(
+                            [0, 0, ring_size - 1, ring_size - 1],
+                            radius=ring_size // 6,
+                            fill=(*base_rgb, 255),
+                        )
+                    else:
+                        rd.rectangle(
+                            [0, 0, ring_size - 1, ring_size - 1],
+                            fill=(*base_rgb, 255),
+                        )
+                    img.paste(ring, (hs_x - ring_pad, hs_y - ring_pad), ring)
+
                     img.paste(hs, (hs_x, hs_y), hs)
                     draw = ImageDraw.Draw(img)
 
