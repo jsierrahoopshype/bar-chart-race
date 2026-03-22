@@ -66,6 +66,17 @@ def run(cfg: Config) -> None:
     keyframes = build_keyframes(df, top_n=cfg.top_n)
 
     body_frames = int(cfg.fps * cfg.duration_sec)
+
+    # Ensure smooth animation for data with few keyframes.
+    n_steps = max(1, len(keyframes) - 1)
+    min_fpt = max(15, int(cfg.fps * 0.5))  # at least 0.5 s per step
+    if n_steps <= 50 and body_frames // n_steps < min_fpt:
+        body_frames = n_steps * min_fpt
+        sys.stderr.write(
+            f"  Boosted to {body_frames} frames "
+            f"({min_fpt}/step) for smoother animation\n"
+        )
+
     frames = interpolate_frames(keyframes, total_frames=body_frames, top_n=cfg.top_n)
 
     # Progressive max scaling.

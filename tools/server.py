@@ -61,6 +61,10 @@ def _run_pipeline(job_id: str, cfg: Config, input_path: str, temp_theme_slug: st
         kfs = build_keyframes(ndf, cfg.top_n)
 
         body_frames = int(cfg.fps * cfg.duration_sec)
+        n_steps = max(1, len(kfs) - 1)
+        min_fpt = max(15, int(cfg.fps * 0.5))
+        if n_steps <= 50 and body_frames // n_steps < min_fpt:
+            body_frames = n_steps * min_fpt
         frames = interpolate_frames(kfs, total_frames=body_frames, top_n=cfg.top_n)
         _compute_progressive_max(frames, headroom=0.12)
 

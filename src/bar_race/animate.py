@@ -27,6 +27,12 @@ def ease_in_out_cubic(t: float) -> float:
     return 1.0 - (-2.0 * t + 2.0) ** 3 / 2.0
 
 
+def ease_out_cubic(t: float) -> float:
+    """Cubic ease-out: fast start, smooth deceleration in [0, 1]."""
+    t = max(0.0, min(1.0, t))
+    return 1.0 - (1.0 - t) ** 3
+
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -113,22 +119,33 @@ def _interpolate_date(
     label_a: str = "",
     label_b: str = "",
 ) -> str:
-    """Linearly interpolate between two dates and return a label string.
+    """Interpolate between two dates and return a label string.
 
-    When *label_a* / *label_b* are provided (numeric label data such as
-    ages or years) the function interpolates between the numeric values
-    and returns the rounded integer as a string.
+    For numeric labels (ages, years) the label stays fixed for the
+    entire segment so it doesn't flicker mid-transition.
     """
     if label_a and label_b:
         try:
-            na, nb = float(label_a), float(label_b)
-            return str(int(round(na + (nb - na) * t)))
+            float(label_a)
+            float(label_b)
+            # Keep current label for entire segment; only show next
+            # label on the very last frame (t=1.0) so the transition
+            # is seamless with the next segment's first frame.
+            return label_a if t < 1.0 else label_b
         except ValueError:
             return label_a if t < 0.5 else label_b
 
     delta = (d2 - d1).total_seconds()
     result = d1 + timedelta(seconds=delta * t)
     return result.strftime("%b %d, %Y")
+
+
+# ---------------------------------------------------------------------------
+# Entry / exit timing
+# ---------------------------------------------------------------------------
+
+_ENTRY_FRACTION = 0.35   # entry uses last 35 % of the step
+_EXIT_FRACTION = 0.35    # exit uses first 35 % of the step
 
 
 def interpolate_frames(
@@ -146,6 +163,12 @@ def interpolate_frames(
 
     n_steps = len(keyframes) - 1
     frames_per_step = max(1, total_frames // n_steps)
+
+    # Ensure minimum frames per step for smooth animation.
+    _MIN_FPT = 20
+    if n_steps <= 50 and frames_per_step < _MIN_FPT:
+        frames_per_step = _MIN_FPT
+
     frames: list[FrameState] = []
 
     for step_idx in range(n_steps):
@@ -158,12 +181,17 @@ def interpolate_frames(
             [b.player for b in kf_a.entries] + [b.player for b in kf_b.entries]
         ))
 
-        n_frames = frames_per_step if step_idx < n_steps - 1 else (total_frames - len(frames))
+        if step_idx < n_steps - 1:
+            n_frames = frames_per_step
+        else:
+            # Last step: use at least frames_per_step frames.
+            n_frames = max(frames_per_step, total_frames - len(frames))
         n_frames = max(n_frames, 1)
 
         for fi in range(n_frames):
             raw_t = fi / max(n_frames - 1, 1)
-            t = ease_in_out_cubic(raw_t)
+            t_rank = ease_in_out_cubic(raw_t)
+            t_value = ease_out_cubic(raw_t)
 
             bars: list[BarState] = []
 
@@ -173,17 +201,34 @@ def interpolate_frames(
 
                 entering = a is None
                 exiting = b is None
-
-                val_a = a.value if a else 0.0
-                val_b = b.value if b else 0.0
-                rank_a = a.rank if a else float(top_n)
-                rank_b = b.rank if b else float(top_n)
                 team = (a.team if a else b.team) if (a or b) else ""  # type: ignore[union-attr]
 
-                value = _lerp(val_a, val_b, t)
-                rank = _lerp(rank_a, rank_b, t)
+                if entering:
+                    # --- slide in from bottom during last 35 % of step ---
+                    entry_start = 1.0 - _ENTRY_FRACTION
+                    if raw_t < entry_start:
+                        continue  # not visible yet
+                    et = ease_out_cubic(
+                        (raw_t - entry_start) / _ENTRY_FRACTION
+                    )
+                    rank = _lerp(float(top_n) + 0.5, b.rank, et)
+                    value = _lerp(b.value * 0.2, b.value, et)
+                    alpha = min(1.0, et * 1.5)
 
-                alpha = t if entering else (1.0 - t if exiting else 1.0)
+                elif exiting:
+                    # --- slide out downward during first 35 % of step ---
+                    if raw_t > _EXIT_FRACTION:
+                        continue  # already gone
+                    et = ease_in_out_cubic(raw_t / _EXIT_FRACTION)
+                    rank = _lerp(a.rank, float(top_n) + 0.5, et)
+                    value = _lerp(a.value, a.value * 0.2, et)
+                    alpha = max(0.0, 1.0 - et * 1.5)
+
+                else:
+                    # --- normal interpolation ---
+                    rank = _lerp(a.rank, b.rank, t_rank)
+                    value = _lerp(a.value, b.value, t_value)
+                    alpha = 1.0
 
                 bars.append(BarState(
                     player=player,
@@ -195,8 +240,8 @@ def interpolate_frames(
                     alpha=alpha,
                 ))
 
-            # Keep only visible bars (rank < top_n).
-            bars = [b for b in bars if b.rank < top_n]
+            # Keep only visible bars (rank < top_n + 1 to allow exit/entry).
+            bars = [b for b in bars if b.rank < top_n + 1]
             bars.sort(key=lambda b: b.rank)
 
             date_label = _interpolate_date(
