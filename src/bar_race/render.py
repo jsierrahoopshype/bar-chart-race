@@ -608,12 +608,70 @@ def _remove_white_halo(img: Image.Image) -> Image.Image:
     return Image.fromarray(arr, "RGBA")
 
 
+def _apply_shape_mask(img: Image.Image, shape: str, size: int) -> Image.Image:
+    """Apply a shape mask (circle, rounded, square) to an image."""
+    mask = Image.new("L", (size, size), 0)
+    md = ImageDraw.Draw(mask)
+    if shape == "circle":
+        md.ellipse([0, 0, size - 1, size - 1], fill=255)
+    elif shape == "rounded":
+        md.rounded_rectangle([0, 0, size - 1, size - 1],
+                             radius=size // 6, fill=255)
+    else:  # square
+        md.rectangle([0, 0, size - 1, size - 1], fill=255)
+    img.putalpha(mask)
+    return img
+
+
+def _apply_border(img: Image.Image, shape: str, size: int,
+                  border_c: tuple[int, int, int]) -> Image.Image:
+    """Draw a border outline on the headshot image."""
+    bw = max(2, size // 30)
+    bordered = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(bordered)
+    if shape == "circle":
+        bd.ellipse([0, 0, size - 1, size - 1],
+                   outline=(*border_c, 220), width=bw)
+    elif shape == "rounded":
+        bd.rounded_rectangle([0, 0, size - 1, size - 1],
+                             radius=size // 6,
+                             outline=(*border_c, 220), width=bw)
+    else:
+        bd.rectangle([0, 0, size - 1, size - 1],
+                     outline=(*border_c, 220), width=bw)
+    return Image.alpha_composite(img, bordered)
+
+
+def _resolve_border_color(theme: Theme,
+                          team_color: tuple[int, int, int] | None,
+                          ) -> tuple[int, int, int]:
+    border_c = _hex_to_rgb(theme.accent_color)
+    if theme.headshot_border_color == "team" and team_color:
+        border_c = team_color
+    elif theme.headshot_border_color not in ("team", "accent"):
+        border_c = _hex_to_rgb(theme.headshot_border_color)
+    return border_c
+
+
 def _load_headshot(
     player: str, directory: str, size: int, theme: Theme,
     team_color: tuple[int, int, int] | None = None,
+    bar_h: int = 0,
 ) -> Optional[Image.Image]:
-    """Load, de-halo, shape, and optionally border a headshot. Cached."""
-    cache_key = f"{player}:{size}:{theme.slug}"
+    """Load, process, and cache a headshot based on headshot_style.
+
+    Styles:
+      circle     — circular clip with colored ring behind it
+      shrink-pad — 80 % headshot centred on filled circle of bar color
+      vignette   — radial gradient alpha fade in outer 12 %
+      hard-alpha — force all pixels to fully opaque or transparent
+      rectangle  — square crop, no circle, full bar height
+    """
+    style = theme.headshot_style
+    # For rectangle, size is bar_h (full height, no gap).
+    effective_size = bar_h if (style == "rectangle" and bar_h > 0) else size
+
+    cache_key = f"{player}:{effective_size}:{theme.slug}"
     if cache_key in _headshot_cache:
         return _headshot_cache[cache_key]
 
@@ -624,46 +682,85 @@ def _load_headshot(
     filepath = _find_headshot_file(player, directory)
     result = None
     if filepath is not None:
-        img = Image.open(filepath).convert("RGBA").resize(
-            (size, size), Image.LANCZOS
-        )
-        img = _remove_white_halo(img)
+        raw = Image.open(filepath).convert("RGBA")
 
-        # Shape mask.
-        mask = Image.new("L", (size, size), 0)
-        md = ImageDraw.Draw(mask)
-        if theme.headshot_shape == "circle":
-            md.ellipse([0, 0, size - 1, size - 1], fill=255)
-        elif theme.headshot_shape == "rounded":
-            md.rounded_rectangle([0, 0, size - 1, size - 1],
-                                 radius=size // 6, fill=255)
-        else:  # square
-            md.rectangle([0, 0, size - 1, size - 1], fill=255)
-        img.putalpha(mask)
+        if style == "rectangle":
+            # Square crop from centre, resize to bar_h × bar_h.
+            s = min(raw.width, raw.height)
+            left = (raw.width - s) // 2
+            top = (raw.height - s) // 2
+            raw = raw.crop((left, top, left + s, top + s))
+            result = raw.resize((effective_size, effective_size), Image.LANCZOS)
 
-        # Border.
-        if theme.headshot_border:
-            bw = max(2, size // 30)
-            border_c = _hex_to_rgb(theme.accent_color)
-            if theme.headshot_border_color == "team" and team_color:
-                border_c = team_color
-            elif theme.headshot_border_color not in ("team", "accent"):
-                border_c = _hex_to_rgb(theme.headshot_border_color)
-            bordered = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-            bd = ImageDraw.Draw(bordered)
-            if theme.headshot_shape == "circle":
-                bd.ellipse([0, 0, size - 1, size - 1],
-                           outline=(*border_c, 220), width=bw)
-            elif theme.headshot_shape == "rounded":
-                bd.rounded_rectangle([0, 0, size - 1, size - 1],
-                                     radius=size // 6,
-                                     outline=(*border_c, 220), width=bw)
+        elif style == "shrink-pad":
+            # 80 % headshot centred on filled circle of team color.
+            img = raw.resize((effective_size, effective_size), Image.LANCZOS)
+            img = _remove_white_halo(img)
+            inner_size = int(effective_size * 0.80)
+            inner = img.resize((inner_size, inner_size), Image.LANCZOS)
+            # Create circle filled with bar color.
+            pad = Image.new("RGBA", (effective_size, effective_size), (0, 0, 0, 0))
+            pd_draw = ImageDraw.Draw(pad)
+            fill_c = team_color if team_color else (128, 128, 128)
+            shape = theme.headshot_shape
+            if shape == "circle":
+                pd_draw.ellipse([0, 0, effective_size - 1, effective_size - 1],
+                                fill=(*fill_c, 255))
+            elif shape == "rounded":
+                pd_draw.rounded_rectangle([0, 0, effective_size - 1, effective_size - 1],
+                                          radius=effective_size // 6, fill=(*fill_c, 255))
             else:
-                bd.rectangle([0, 0, size - 1, size - 1],
-                             outline=(*border_c, 220), width=bw)
-            img = Image.alpha_composite(img, bordered)
+                pd_draw.rectangle([0, 0, effective_size - 1, effective_size - 1],
+                                  fill=(*fill_c, 255))
+            # Apply shape mask to inner headshot.
+            inner = _apply_shape_mask(inner, shape, inner_size)
+            offset = (effective_size - inner_size) // 2
+            pad.paste(inner, (offset, offset), inner)
+            # Apply outer shape mask.
+            pad = _apply_shape_mask(pad, shape, effective_size)
+            if theme.headshot_border:
+                pad = _apply_border(pad, shape, effective_size,
+                                    _resolve_border_color(theme, team_color))
+            result = pad
 
-        result = img
+        elif style == "vignette":
+            img = raw.resize((effective_size, effective_size), Image.LANCZOS)
+            img = _remove_white_halo(img)
+            img = _apply_shape_mask(img, theme.headshot_shape, effective_size)
+            # Radial gradient alpha: centre=255, fade starts at 88 % radius.
+            arr = np.array(img)
+            cx = cy = effective_size / 2.0
+            max_r = effective_size / 2.0
+            fade_start = 0.88
+            ys, xs = np.mgrid[0:effective_size, 0:effective_size]
+            dist = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2) / max_r
+            # Pixels inside fade_start: alpha unchanged; outside: fade to 0.
+            fade = np.clip((1.0 - dist) / (1.0 - fade_start), 0.0, 1.0)
+            arr[:, :, 3] = (arr[:, :, 3].astype(np.float32) * fade).astype(np.uint8)
+            result = Image.fromarray(arr, "RGBA")
+
+        elif style == "hard-alpha":
+            img = raw.resize((effective_size, effective_size), Image.LANCZOS)
+            img = _remove_white_halo(img)
+            img = _apply_shape_mask(img, theme.headshot_shape, effective_size)
+            # Force alpha to binary: >= 128 → 255, else 0.
+            arr = np.array(img)
+            arr[:, :, 3] = np.where(arr[:, :, 3] >= 128, 255, 0).astype(np.uint8)
+            img = Image.fromarray(arr, "RGBA")
+            if theme.headshot_border:
+                img = _apply_border(img, theme.headshot_shape, effective_size,
+                                    _resolve_border_color(theme, team_color))
+            result = img
+
+        else:
+            # Default "circle" style.
+            img = raw.resize((effective_size, effective_size), Image.LANCZOS)
+            img = _remove_white_halo(img)
+            img = _apply_shape_mask(img, theme.headshot_shape, effective_size)
+            if theme.headshot_border:
+                img = _apply_border(img, theme.headshot_shape, effective_size,
+                                    _resolve_border_color(theme, team_color))
+            result = img
 
     _headshot_cache[cache_key] = result
     return result
@@ -734,6 +831,42 @@ class FrameRenderer:
         self._margin_right = int(self.W * 0.05)
         self._bar_area_top = int(self.H * 0.16)
         self._bar_area_bottom = int(self.H * 0.86)
+
+    def _draw_rank_number(
+        self, draw: ImageDraw.Draw, bar: BarState,
+        x1: int, y1: int, bar_h: int, name_tw: int,
+        text2_c: tuple[int, int, int],
+        accent_c: tuple[int, int, int],
+        alpha: int,
+    ) -> None:
+        """Draw rank number to the left of the player name."""
+        th = self.theme
+        rank_num = int(bar.rank) + 1
+        if th.rank_number_style == "padded":
+            rank_text = f"{rank_num:02d}"
+        else:
+            rank_text = str(rank_num)
+        rw, rh = _text_size(draw, rank_text, self.font_rank)
+        if th.rank_number_style == "badge":
+            badge_size = max(rw, rh) + 12
+            badge_x = x1 - name_tw - badge_size - 16
+            badge_y = y1 + (bar_h - badge_size) // 2
+            draw.ellipse(
+                [badge_x, badge_y, badge_x + badge_size, badge_y + badge_size],
+                fill=(*accent_c, 200),
+            )
+            draw.text(
+                (badge_x + (badge_size - rw) // 2,
+                 badge_y + (badge_size - rh) // 2),
+                rank_text, fill=(255, 255, 255, 240), font=self.font_rank,
+            )
+        else:
+            rank_x = x1 - name_tw - rw - 18
+            rank_y = y1 + (bar_h - rh) // 2
+            draw.text(
+                (rank_x, rank_y), rank_text,
+                fill=(*text2_c, int(alpha * 0.7)), font=self.font_rank,
+            )
 
     # -- public API --------------------------------------------------------
 
@@ -915,89 +1048,52 @@ class FrameRenderer:
                     draw = ImageDraw.Draw(img)
 
             # --- headshot -------------------------------------------------
+            hs_right_edge = 0  # track right edge for "inside" label layout
             if self.cfg.headshot_dir:
                 hs_size = max(16, bar_h - 6)
                 hs = _load_headshot(
                     bar.player, self.cfg.headshot_dir, hs_size, th,
-                    team_color=base_rgb,
+                    team_color=base_rgb, bar_h=bar_h,
                 )
                 if hs is not None:
-                    if th.headshot_position == "before-bar":
-                        hs_x = x1 - hs_size - 8
+                    hs_w, hs_h = hs.size
+
+                    if th.headshot_style == "rectangle":
+                        # Flush with bar left edge, full bar height.
+                        hs_x = x1
+                        hs_y = y1
+                    elif th.headshot_position == "before-bar":
+                        hs_x = x1 - hs_w - 8
+                        hs_y = y1 + (bar_h - hs_h) // 2
                     else:
                         hs_x = x1 + 6
-                    hs_y = y1 + (bar_h - hs_size) // 2
+                        hs_y = y1 + (bar_h - hs_h) // 2
 
-                    # Draw a colored ring behind the headshot to hide
-                    # any white fringe artifacts at the edges.
-                    ring_pad = 4  # ring extends 4 px beyond headshot
-                    ring_size = hs_size + ring_pad * 2
-                    ring = Image.new("RGBA", (ring_size, ring_size), (0, 0, 0, 0))
-                    rd = ImageDraw.Draw(ring)
-                    if th.headshot_shape == "circle":
-                        # Dark outline (1px) then filled color ring.
-                        rd.ellipse(
-                            [0, 0, ring_size - 1, ring_size - 1],
-                            fill=(*base_rgb, 255),
-                            outline=(0, 0, 0, 77),  # ~0.3 opacity
-                        )
-                    elif th.headshot_shape == "rounded":
-                        rd.rounded_rectangle(
-                            [0, 0, ring_size - 1, ring_size - 1],
-                            radius=ring_size // 6,
-                            fill=(*base_rgb, 255),
-                            outline=(0, 0, 0, 77),
-                        )
-                    else:
-                        rd.rectangle(
-                            [0, 0, ring_size - 1, ring_size - 1],
-                            fill=(*base_rgb, 255),
-                            outline=(0, 0, 0, 77),
-                        )
-                    img.paste(ring, (hs_x - ring_pad, hs_y - ring_pad), ring)
+                    # Draw colored ring behind non-rectangle, non-vignette,
+                    # non-shrink-pad styles.
+                    if th.headshot_style in ("circle", "hard-alpha"):
+                        ring_pad = 4
+                        ring_size = hs_w + ring_pad * 2
+                        ring = Image.new("RGBA", (ring_size, ring_size), (0, 0, 0, 0))
+                        rd = ImageDraw.Draw(ring)
+                        shape = th.headshot_shape
+                        if shape == "circle":
+                            rd.ellipse([0, 0, ring_size - 1, ring_size - 1],
+                                       fill=(*base_rgb, 255), outline=(0, 0, 0, 77))
+                        elif shape == "rounded":
+                            rd.rounded_rectangle([0, 0, ring_size - 1, ring_size - 1],
+                                                 radius=ring_size // 6,
+                                                 fill=(*base_rgb, 255), outline=(0, 0, 0, 77))
+                        else:
+                            rd.rectangle([0, 0, ring_size - 1, ring_size - 1],
+                                         fill=(*base_rgb, 255), outline=(0, 0, 0, 77))
+                        img.paste(ring, (hs_x - ring_pad, hs_y - ring_pad), ring)
 
                     img.paste(hs, (hs_x, hs_y), hs)
+                    hs_right_edge = hs_x + hs_w
                     draw = ImageDraw.Draw(img)
 
-            # --- rank number (left of name) -------------------------------
-            if th.show_rank_numbers and not th.rank_giant_watermark:
-                rank_num = int(bar.rank) + 1
-                if th.rank_number_style == "padded":
-                    rank_text = f"{rank_num:02d}"
-                elif th.rank_number_style == "badge":
-                    rank_text = str(rank_num)
-                else:
-                    rank_text = str(rank_num)
-                rw, rh = _text_size(draw, rank_text, self.font_rank)
-
-                # Apply label case to name for width measurement.
-                name_for_measure = bar.player
-                if th.label_case == "upper":
-                    name_for_measure = name_for_measure.upper()
-                tw_name = _text_size(draw, name_for_measure, self.font_name)[0]
-
-                if th.rank_number_style == "badge":
-                    badge_size = max(rw, rh) + 12
-                    badge_x = x1 - tw_name - badge_size - 16
-                    badge_y = y1 + (bar_h - badge_size) // 2
-                    draw.ellipse(
-                        [badge_x, badge_y, badge_x + badge_size, badge_y + badge_size],
-                        fill=(*accent_c, 200),
-                    )
-                    draw.text(
-                        (badge_x + (badge_size - rw) // 2,
-                         badge_y + (badge_size - rh) // 2),
-                        rank_text, fill=(255, 255, 255, 240), font=self.font_rank,
-                    )
-                else:
-                    rank_x = x1 - tw_name - rw - 18
-                    rank_y = y1 + (bar_h - rh) // 2
-                    draw.text(
-                        (rank_x, rank_y), rank_text,
-                        fill=(*text2_c, int(alpha * 0.7)), font=self.font_rank,
-                    )
-
-            # --- player name (right-aligned, left of bar) -----------------
+            # --- prepare text ---------------------------------------------
             name_text = bar.player
             if th.label_case == "upper":
                 name_text = name_text.upper()
@@ -1005,25 +1101,98 @@ class FrameRenderer:
                 name_text = name_text.title()
             tw, th_h = _text_size(draw, name_text, self.font_name)
 
-            name_x = x1 - tw - 10
-            name_y = y1 + (bar_h - th_h) // 2
-            draw.text(
-                (name_x, name_y), name_text,
-                fill=(*text_c, alpha), font=self.font_name,
-            )
-
-            # --- value label (inside bar if room, else outside) -----------
             val_text = f"{bar.value:,.0f}{th.value_suffix}"
             vw, vh = _text_size(draw, val_text, self.font_value)
 
-            if bar_w > vw + 20:
-                val_x = x2 - vw - 10
-                val_color = (*text_c, alpha)
+            label_pos = th.label_position
+
+            if label_pos == "inside":
+                # --- INSIDE: name + value inside the bar ------------------
+                # Text left edge: after headshot or bar left + padding.
+                text_left = max(hs_right_edge + 8, x1 + 10)
+                text_right = x2 - 10
+                avail = text_right - text_left
+
+                # Dark gradient overlay on left of bar for readability.
+                grad_w = min(bar_w, max(int(bar_w * 0.5), tw + vw + 40))
+                if grad_w > 10 and bar_h > 2:
+                    grad = Image.new("RGBA", (grad_w, bar_h), (0, 0, 0, 0))
+                    g_arr = np.zeros((bar_h, grad_w, 4), dtype=np.uint8)
+                    xs_g = np.linspace(1.0, 0.0, grad_w)
+                    g_arr[:, :, 3] = (xs_g * 80).astype(np.uint8)
+                    grad = Image.fromarray(g_arr, "RGBA")
+                    img.paste(grad, (x1, y1), grad)
+                    draw = ImageDraw.Draw(img)
+
+                # White text with shadow for readability.
+                name_y = y1 + (bar_h - th_h) // 2
+                # Text shadow.
+                draw.text((text_left + 1, name_y + 1), name_text,
+                          fill=(0, 0, 0, min(alpha, 120)), font=self.font_name)
+
+                # Truncate name if needed.
+                if avail > vw + 30:
+                    max_name_w = avail - vw - 20
+                    display_name = name_text
+                    if tw > max_name_w:
+                        # Truncate with ellipsis.
+                        for end in range(len(name_text), 0, -1):
+                            trial = name_text[:end] + "…"
+                            if _text_size(draw, trial, self.font_name)[0] <= max_name_w:
+                                display_name = trial
+                                break
+                        else:
+                            display_name = name_text[:3] + "…"
+                    draw.text((text_left, name_y), display_name,
+                              fill=(255, 255, 255, alpha), font=self.font_name)
+                    # Value right-aligned inside bar.
+                    val_y = y1 + (bar_h - vh) // 2
+                    draw.text((text_right - vw + 1, val_y + 1), val_text,
+                              fill=(0, 0, 0, min(alpha, 120)), font=self.font_value)
+                    draw.text((text_right - vw, val_y), val_text,
+                              fill=(255, 255, 255, alpha), font=self.font_value)
+                else:
+                    # Bar too short: name inside, value outside.
+                    draw.text((text_left, name_y), name_text,
+                              fill=(255, 255, 255, alpha), font=self.font_name)
+                    val_y = y1 + (bar_h - vh) // 2
+                    draw.text((x2 + 10, val_y), val_text,
+                              fill=(*text2_c, alpha), font=self.font_value)
+
+            elif label_pos == "outside-right":
+                # --- OUTSIDE-RIGHT: name left of bar, value always outside --
+                # Rank numbers.
+                if th.show_rank_numbers and not th.rank_giant_watermark:
+                    self._draw_rank_number(draw, bar, x1, y1, bar_h, tw,
+                                           text2_c, accent_c, alpha)
+                name_x = x1 - tw - 10
+                name_y = y1 + (bar_h - th_h) // 2
+                draw.text((name_x, name_y), name_text,
+                          fill=(*text_c, alpha), font=self.font_name)
+                val_y = y1 + (bar_h - vh) // 2
+                draw.text((x2 + 10, val_y), val_text,
+                          fill=(*text2_c, alpha), font=self.font_value)
+
             else:
-                val_x = x2 + 10
-                val_color = (*text2_c, alpha)
-            val_y = y1 + (bar_h - vh) // 2
-            draw.text((val_x, val_y), val_text, fill=val_color, font=self.font_value)
+                # --- OUTSIDE (default): name left, value inside/outside ----
+                # Rank numbers.
+                if th.show_rank_numbers and not th.rank_giant_watermark:
+                    self._draw_rank_number(draw, bar, x1, y1, bar_h, tw,
+                                           text2_c, accent_c, alpha)
+                name_x = x1 - tw - 10
+                name_y = y1 + (bar_h - th_h) // 2
+                draw.text((name_x, name_y), name_text,
+                          fill=(*text_c, alpha), font=self.font_name)
+
+                if bar_w > vw + 20:
+                    val_x = x2 - vw - 10
+                    val_color = (*text_c, alpha)
+                else:
+                    val_x = x2 + 10
+                    val_color = (*text2_c, alpha)
+                val_y = y1 + (bar_h - vh) // 2
+                draw.text((val_x, val_y), val_text,
+                          fill=val_color, font=self.font_value)
 
         # --- date label ---------------------------------------------------
         date_c = _hex_to_rgb(th.date_color)

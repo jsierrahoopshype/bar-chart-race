@@ -263,6 +263,13 @@ a { color:var(--accent2); }
         </div>
       </div>
       <div class="field"><label>Value Suffix</label><input type="text" id="valueSuffix" value="" placeholder="e.g. PTS" oninput="update()"></div>
+      <div class="field"><label>Label Position</label>
+        <select id="labelPosition" onchange="update()">
+          <option value="outside">Outside (default)</option>
+          <option value="inside">Inside bar</option>
+          <option value="outside-right">Outside right</option>
+        </select>
+      </div>
     </div>
 
     <!-- Headshot -->
@@ -275,6 +282,15 @@ a { color:var(--accent2); }
             <option value="rounded">Rounded</option>
             <option value="square">Square</option>
             <option value="none">None</option>
+          </select>
+        </div>
+        <div class="field"><label>Style</label>
+          <select id="headshotStyle" onchange="update()">
+            <option value="circle">Circle (default)</option>
+            <option value="shrink-pad">Shrink Pad</option>
+            <option value="vignette">Vignette</option>
+            <option value="hard-alpha">Hard Alpha</option>
+            <option value="rectangle">Rectangle</option>
           </select>
         </div>
       </div>
@@ -428,8 +444,10 @@ function collectOverrides() {
     noise: getCheck('noise'),
     font_family: getVal('fontFamily') || 'sans',
     label_case: getVal('labelCase') || 'normal',
+    label_position: getVal('labelPosition') || 'outside',
     value_suffix: getVal('valueSuffix') || '',
     headshot_shape: getVal('headshotShape') || 'circle',
+    headshot_style: getVal('headshotStyle') || 'circle',
     headshot_border: getCheck('headshotBorder'),
     border_frame: getVal('borderFrame') || 'none',
     show_branding_tag: getCheck('showBrandingTag'),
@@ -579,7 +597,9 @@ function applyTheme(slug) {
 
   setVal('fontFamily', t.font_family || 'sans');
   setVal('labelCase', t.label_case || 'normal');
+  setVal('labelPosition', t.label_position || 'outside');
   setVal('headshotShape', t.headshot_shape || 'circle');
+  setVal('headshotStyle', t.headshot_style || 'circle');
   setVal('borderFrame', t.border_frame || 'none');
   setVal('valueSuffix', t.value_suffix || '');
   setVal('brandingText', t.branding_text || '');

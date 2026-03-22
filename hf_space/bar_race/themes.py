@@ -53,6 +53,7 @@ class Theme:
     text_color: str = "#ffffff"
     text_secondary_color: str = "#cccccc"
     label_case: str = "normal"  # "normal", "upper", "title"
+    label_position: str = "outside"  # "outside", "inside", "outside-right"
     value_suffix: str = ""
 
     # Date display
@@ -63,6 +64,7 @@ class Theme:
 
     # Headshot
     headshot_shape: str = "circle"  # "circle", "rounded", "square", "none"
+    headshot_style: str = "circle"  # "circle", "shrink-pad", "vignette", "hard-alpha", "rectangle"
     headshot_border: bool = False
     headshot_border_color: str = "team"  # "team", "accent", or hex
     headshot_position: str = "in-bar"
@@ -119,6 +121,7 @@ _register(
        date_opacity=0.15, date_position="bottom-right",
        title_color="#ffffff",
        show_branding_tag=True, branding_text="SPORTSCENTER", branding_color="#cc0000",
+       headshot_style="rectangle", label_position="inside",
        border_frame="top-bottom",
        vignette=False, noise=False, bar_shadow=True),
 
@@ -135,6 +138,7 @@ _register(
        text_color="#ffffff", text_secondary_color="#aaaaaa",
        date_opacity=0.15,
        show_branding_tag=True, branding_text="B/R", branding_color="#ff6600",
+       headshot_style="shrink-pad", label_position="inside",
        border_frame="top-bottom",
        vignette=False, noise=False, bar_shadow=True),
 
@@ -166,7 +170,8 @@ _register(
        font_family="sans", label_case="normal",
        text_color="#ffffff", text_secondary_color="#888888",
        date_opacity=0.1,
-       headshot_shape="rounded",
+       headshot_shape="rounded", headshot_style="rectangle",
+       label_position="inside",
        vignette=False, noise=False, bar_shadow=True),
 
     # 5
@@ -182,6 +187,7 @@ _register(
        title_color="#ffffff",
        date_opacity=0.15,
        show_branding_tag=True, branding_text="NBA ON TNT", branding_color="#cc0000",
+       headshot_style="vignette",
        border_frame="top-bottom",
        vignette=True, noise=False, bar_shadow=True),
 
@@ -215,6 +221,7 @@ _register(
        value_suffix=" PTS",
        date_opacity=0.15,
        show_branding_tag=True, branding_text="FANTASY", branding_color="#ffd700",
+       headshot_style="shrink-pad",
        border_frame="left-accent",
        vignette=True, noise=True, bar_shadow=True),
 
@@ -230,6 +237,7 @@ _register(
        show_rank_numbers=True, rank_giant_watermark=True,
        font_family="condensed", label_case="upper",
        text_color="#ffffff",
+       label_position="inside",
        date_opacity=0.15,
        border_frame="top-bottom",
        vignette=False, noise=False, bar_shadow=True),
@@ -338,7 +346,8 @@ _register(
        font_family="mono",
        text_color="#00ff88", text_secondary_color="#008844",
        date_color="#00ff88", date_opacity=0.2,
-       headshot_shape="square", headshot_border=True, headshot_border_color="#00ff88",
+       headshot_shape="square", headshot_style="hard-alpha",
+       headshot_border=True, headshot_border_color="#00ff88",
        vignette=False, noise=True, bar_shadow=False),
 
     # 16
@@ -536,6 +545,7 @@ _register(
        text_color="#ffffff", text_secondary_color="#dddddd",
        date_opacity=0.15,
        show_branding_tag=True, branding_text="FIRST TAKE", branding_color="#ffcc00",
+       label_position="inside",
        border_frame="top-bottom",
        vignette=False, noise=False, bar_shadow=True),
 
@@ -569,7 +579,8 @@ _register(
        text_color="#1a1a1a", text_secondary_color="#555555",
        title_color="#000000",
        date_color="#888888", date_opacity=0.4,
-       headshot_shape="circle", headshot_border=True, headshot_border_color="#dddddd",
+       headshot_shape="circle", headshot_style="rectangle",
+       headshot_border=True, headshot_border_color="#dddddd",
        show_grid_lines=True,
        vignette=False, noise=False, bar_shadow=False),
 
@@ -602,7 +613,8 @@ _register(
        text_color="#000000", text_secondary_color="#444444",
        title_color="#333333",
        date_color="#666666", date_opacity=0.5,
-       headshot_shape="square", headshot_border=True, headshot_border_color="#cccccc",
+       headshot_shape="square", headshot_style="rectangle",
+       headshot_border=True, headshot_border_color="#cccccc",
        show_grid_lines=True,
        vignette=False, noise=False, bar_shadow=False),
 
@@ -903,6 +915,7 @@ _register(
        font_family="sans",
        text_color="#ffffff", text_secondary_color="#88aacc",
        date_color="#ff6b35", date_opacity=0.2,
+       headshot_style="shrink-pad",
        headshot_border=True, headshot_border_color="#ff6b35",
        show_branding_tag=True, branding_text="HOOPSHYPE", branding_color="#ff6b35",
        border_frame="left-accent",
@@ -921,7 +934,8 @@ _register(
        text_color="#1a1a2e", text_secondary_color="#555566",
        title_color="#0c1a2e",
        date_color="#888888", date_opacity=0.4,
-       headshot_shape="circle", headshot_border=True, headshot_border_color="#ff6b35",
+       headshot_shape="circle", headshot_style="shrink-pad",
+       headshot_border=True, headshot_border_color="#ff6b35",
        show_branding_tag=True, branding_text="HOOPSHYPE", branding_color="#ff6b35",
        show_grid_lines=True,
        border_frame="left-accent",
