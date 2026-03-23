@@ -58,6 +58,11 @@ def load(
     if suffix in (".xlsx", ".xls"):
         return pd.read_excel(p, sheet_name=sheet_name or 0, engine="openpyxl")
     if suffix == ".csv":
-        return pd.read_csv(p)
+        for encoding in ("utf-8", "latin-1", "cp1252"):
+            try:
+                return pd.read_csv(p, encoding=encoding)
+            except UnicodeDecodeError:
+                continue
+        return pd.read_csv(p, encoding="utf-8", errors="replace")
 
     raise ValueError(f"Unsupported file type: {suffix}")
