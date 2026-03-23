@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import sys
 from typing import Iterator
 
@@ -32,16 +33,12 @@ def _compute_progressive_max(frames: list[FrameState], headroom: float = 0.12) -
 
 
 def _hold_frames(frame: FrameState, count: int) -> list[FrameState]:
-    """Duplicate a single frame *count* times for intro/outro holds."""
-    return [
-        FrameState(
-            bars=list(frame.bars),
-            date_label=frame.date_label,
-            progress=frame.progress,
-            max_value=frame.max_value,
-        )
-        for _ in range(count)
-    ]
+    """Duplicate a single frame *count* times for intro/outro holds.
+
+    Uses shallow copy to preserve all overlay fields (reign_history,
+    gap_pct, players_seen, etc.).
+    """
+    return [copy.copy(frame) for _ in range(count)]
 
 
 def run(cfg: Config) -> None:
