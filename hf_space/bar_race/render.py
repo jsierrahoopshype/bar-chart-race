@@ -841,6 +841,10 @@ class FrameRenderer:
         # Layout constants
         self._margin_left = int(self.W * 0.22)
         self._margin_right = int(self.W * 0.05)
+        # For "inside" label themes, bars start at left margin — equalize.
+        if th.label_position == "inside":
+            self._margin_left = int(self.W * 0.05)
+            self._margin_right = int(self.W * 0.05)
         self._bar_area_top = int(self.H * 0.16)
         self._bar_area_bottom = int(self.H * 0.86)
 
@@ -1275,11 +1279,10 @@ class FrameRenderer:
 
         # --- overlays ---------------------------------------------------------
 
-        # Reign tracker — subtle text in bottom-right near the date.
+        # Reign tracker — subtle text in top-right, below title area.
         if self.cfg.show_reign_tracker and th.show_reign_tracker and state.reign_text:
-            rtw, rth = _text_size(draw, state.reign_text, self.font_watermark)
             rx = self.W - self._margin_right - 10
-            ry = self._bar_area_bottom + 8
+            ry = int(self.H * 0.12)
             draw.text((rx, ry), state.reign_text,
                       fill=(*text2_c, 128), font=self.font_watermark, anchor="rt")
 
