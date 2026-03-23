@@ -68,6 +68,14 @@ def _run_pipeline(job_id: str, cfg: Config, input_path: str, temp_theme_slug: st
         frames = interpolate_frames(kfs, total_frames=body_frames, top_n=cfg.top_n)
         _compute_progressive_max(frames, headroom=0.12)
 
+        # Leader overlay tracking.
+        from bar_race.animate import populate_leader_overlays
+        reigns = populate_leader_overlays(
+            frames, fps=cfg.fps,
+            alert_duration=cfg.leader_alert_duration,
+            gap_threshold=cfg.gap_alert_threshold,
+        )
+
         # Intro / outro hold frames.
         from bar_race.pipeline import _hold_frames
         intro_count = int(cfg.fps * cfg.intro_hold_sec)

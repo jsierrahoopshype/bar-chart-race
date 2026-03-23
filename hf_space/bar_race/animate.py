@@ -64,6 +64,15 @@ class FrameState:
     progress: float  # 0‥1 overall animation progress
     max_value: float
 
+    # Overlay state (populated by post-processing).
+    leader: str = ""              # current #1 player name
+    leader_changed: bool = False  # True on frames where leader changes
+    new_leader: str = ""          # new leader name (set on change frames)
+    leader_alert_t: float = 0.0  # 0‥1 progress through the alert flash
+    reign_text: str = ""          # e.g. "#1: LeBron James (2023—present)"
+    gap_pct: float = 0.0         # % gap between #1 and #2
+    show_gap: bool = False       # True when gap > threshold
+
 
 @dataclass
 class Keyframe:
@@ -264,3 +273,97 @@ def interpolate_frames(
             ))
 
     return frames
+
+
+# ---------------------------------------------------------------------------
+# Leader tracking (post-processing pass)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ReignPeriod:
+    """Track a #1 leader's reign."""
+    player: str
+    start_label: str
+    end_label: str = ""
+
+
+def populate_leader_overlays(
+    frames: list[FrameState],
+    fps: int = 60,
+    alert_duration: float = 1.5,
+    gap_threshold: float = 0.10,
+    gap_hysteresis: float = 0.08,
+) -> list[ReignPeriod]:
+    """Fill in leader/reign/gap fields on each frame. Returns reign history."""
+    if not frames:
+        return []
+
+    alert_frames = int(fps * alert_duration)
+    reigns: list[ReignPeriod] = []
+    prev_leader = ""
+    alert_countdown = 0
+    alert_name = ""
+    gap_active = False
+
+    for i, f in enumerate(frames):
+        # Determine current leader (lowest rank, highest value).
+        leader = ""
+        leader_val = 0.0
+        second_val = 0.0
+        sorted_bars = sorted(f.bars, key=lambda b: b.rank)
+        if sorted_bars:
+            leader = sorted_bars[0].player
+            leader_val = sorted_bars[0].value
+        if len(sorted_bars) > 1:
+            second_val = sorted_bars[1].value
+
+        f.leader = leader
+
+        # Detect leader change.
+        if leader and leader != prev_leader and prev_leader != "":
+            f.leader_changed = True
+            f.new_leader = leader
+            alert_countdown = alert_frames
+            alert_name = leader
+            # Close previous reign.
+            if reigns:
+                reigns[-1].end_label = f.date_label
+            reigns.append(ReignPeriod(player=leader, start_label=f.date_label))
+        elif leader and not reigns:
+            # First frame — start first reign.
+            reigns.append(ReignPeriod(player=leader, start_label=f.date_label))
+
+        prev_leader = leader
+
+        # Leader alert progress (0→1 over alert_duration).
+        if alert_countdown > 0:
+            t = 1.0 - (alert_countdown / alert_frames)
+            f.leader_alert_t = t
+            f.new_leader = alert_name
+            f.leader_changed = True
+            alert_countdown -= 1
+
+        # Reign text.
+        if reigns:
+            r = reigns[-1]
+            end = r.end_label if r.end_label else "present"
+            f.reign_text = f"#1: {r.player} ({r.start_label}\u2014{end})"
+
+        # Gap percentage.
+        if leader_val > 0 and second_val > 0:
+            gap = (leader_val - second_val) / second_val
+            f.gap_pct = gap
+            if gap_active:
+                gap_active = gap >= gap_hysteresis
+            else:
+                gap_active = gap >= gap_threshold
+            f.show_gap = gap_active
+        else:
+            f.gap_pct = 0.0
+            f.show_gap = False
+
+    # Close final reign.
+    if reigns and frames:
+        reigns[-1].end_label = frames[-1].date_label
+
+    return reigns

@@ -5,7 +5,10 @@ from __future__ import annotations
 import sys
 from typing import Iterator
 
-from bar_race.animate import FrameState, build_keyframes, interpolate_frames
+from bar_race.animate import (
+    FrameState, build_keyframes, interpolate_frames,
+    populate_leader_overlays,
+)
 from bar_race.config import Config
 from bar_race.encode import encode
 from bar_race.ingest import load
@@ -82,6 +85,14 @@ def run(cfg: Config) -> None:
     # Progressive max scaling.
     _compute_progressive_max(frames, headroom=0.12)
 
+    # Leader overlay tracking.
+    reigns = populate_leader_overlays(
+        frames,
+        fps=cfg.fps,
+        alert_duration=cfg.leader_alert_duration,
+        gap_threshold=cfg.gap_alert_threshold,
+    )
+
     # Intro / outro hold frames.
     intro_count = int(cfg.fps * cfg.intro_hold_sec)
     outro_count = int(cfg.fps * cfg.outro_hold_sec)
@@ -100,9 +111,35 @@ def run(cfg: Config) -> None:
     renderer = FrameRenderer(cfg)
     preset = cfg.get_preset()
 
+    # Summary card frames (8 seconds, with 0.5s crossfade from final).
+    summary_frames_count = 0
+    summary_img = None
+    if cfg.show_summary_card and frames:
+        summary_img = renderer.render_summary(frames[-1], reigns, keyframes)
+        summary_frames_count = int(cfg.fps * 8)
+        total += summary_frames_count
+
+    crossfade_len = int(cfg.fps * 0.5)  # 0.5 s crossfade
+    final_bar_img = None
+
     def frame_gen() -> Iterator[bytes]:
+        nonlocal final_bar_img
         for fs in all_frames:
-            yield renderer.render_rgb_bytes(fs)
+            final_bar_img = renderer.render(fs)
+            yield final_bar_img.convert("RGB").tobytes()
+
+        # Summary card with crossfade.
+        if summary_img is not None and final_bar_img is not None:
+            import numpy as _np
+            bar_arr = _np.array(final_bar_img.convert("RGB"))
+            sum_arr = _np.array(summary_img.convert("RGB"))
+            for si in range(summary_frames_count):
+                if si < crossfade_len:
+                    t = si / max(crossfade_len - 1, 1)
+                    blended = (bar_arr * (1 - t) + sum_arr * t).astype(_np.uint8)
+                    yield blended.tobytes()
+                else:
+                    yield sum_arr.tobytes()
 
     sys.stderr.write(f"Encoding to {cfg.output} ...\n")
     encode(
