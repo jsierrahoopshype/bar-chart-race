@@ -192,7 +192,7 @@ class Config:
     show_leader_alerts: bool = True
     show_gap_alerts: bool = True
     leader_alert_duration: float = 1.5  # seconds
-    gap_alert_threshold: float = 0.10   # 10 %
+    gap_alert_threshold: float = 0.15   # 15 %
     show_summary_card: bool = True
 
     def __post_init__(self) -> None:

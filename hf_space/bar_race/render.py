@@ -667,12 +667,14 @@ def _load_headshot(
       hard-alpha — force all pixels to fully opaque or transparent
       rectangle  — square crop, no circle, full bar height
     """
+    _MIN_HEADSHOT_BYTES = 15_000  # below this = silhouette placeholder
+
     style = theme.headshot_style
-    # For rectangle, height = bar_h, width = 75% of bar_h (portrait).
+    # For rectangle: landscape orientation — width > height.
     if style == "rectangle" and bar_h > 0:
         rect_h = bar_h
-        rect_w = max(1, int(bar_h * 0.75))
-        effective_size = rect_h  # used for cache key
+        rect_w = max(1, int(bar_h * 1.3))
+        effective_size = rect_h
     else:
         rect_h = rect_w = size
         effective_size = size
@@ -688,36 +690,18 @@ def _load_headshot(
     filepath = _find_headshot_file(player, directory)
     result = None
     if filepath is not None:
-        raw = Image.open(filepath).convert("RGBA")
-
-        # Skip silhouette placeholders (low color variance).
-        gray = np.array(raw.convert("L"), dtype=np.float32)
-        if float(np.std(gray)) < 25:
+        # Skip silhouettes: files under 15 KB are NBA CDN placeholders.
+        if filepath.stat().st_size < _MIN_HEADSHOT_BYTES:
             _headshot_cache[cache_key] = None
             return None
 
+        raw = Image.open(filepath).convert("RGBA")
+
         if style == "rectangle":
-            # Portrait crop focusing on head area (top 70%, 3:4 aspect).
-            # NBA CDN images are 1040x760 landscape — crop to portrait.
+            # Landscape crop: full width, top 80 % of height (face area).
             src_w, src_h = raw.size
-            # Target aspect ratio matches rect_w:rect_h.
-            target_ratio = rect_w / rect_h  # ~0.75
-            src_ratio = src_w / src_h
-            if src_ratio > target_ratio:
-                # Source is wider — crop horizontally, center.
-                crop_w = int(src_h * target_ratio)
-                crop_h = src_h
-                left = (src_w - crop_w) // 2
-                top = 0
-            else:
-                # Source is taller — crop vertically, take top 70%.
-                crop_w = src_w
-                crop_h = int(src_w / target_ratio)
-                left = 0
-                top = 0  # anchor to top (head area)
-            crop_h = min(crop_h, src_h)
-            crop_w = min(crop_w, src_w)
-            raw = raw.crop((left, top, left + crop_w, top + crop_h))
+            crop_h = int(src_h * 0.80)
+            raw = raw.crop((0, 0, src_w, crop_h))
             result = raw.resize((rect_w, rect_h), Image.LANCZOS)
 
         elif style == "shrink-pad":
@@ -1291,71 +1275,63 @@ class FrameRenderer:
 
         # --- overlays ---------------------------------------------------------
 
-        # Reign tracker banner.
+        # Reign tracker — subtle text in bottom-right near the date.
         if self.cfg.show_reign_tracker and th.show_reign_tracker and state.reign_text:
-            banner_h = max(28, int(self.H * 0.035))
-            banner_y = self._bar_area_bottom + 5
-            banner = Image.new("RGBA", (self.W, banner_h), (0, 0, 0, 0))
-            bd = ImageDraw.Draw(banner)
-            bd.rectangle([0, 0, self.W, banner_h],
-                         fill=(*accent_c, 178))  # ~70% opacity
-            rtw, rth = _text_size(bd, state.reign_text, self.font_branding)
-            bd.text(((self.W - rtw) // 2, (banner_h - rth) // 2),
-                    state.reign_text, fill=(255, 255, 255, 240),
-                    font=self.font_branding)
-            img.paste(banner, (0, banner_y), banner)
-            draw = ImageDraw.Draw(img)
+            rtw, rth = _text_size(draw, state.reign_text, self.font_watermark)
+            rx = self.W - self._margin_right - 10
+            ry = self._bar_area_bottom + 8
+            draw.text((rx, ry), state.reign_text,
+                      fill=(*text2_c, 128), font=self.font_watermark, anchor="rt")
 
-        # Gap alert badge near leader bar.
+        # Gap alert — small accent text above the leader bar.
         if (self.cfg.show_gap_alerts and th.show_gap_alerts
                 and state.show_gap and state.bars):
             leader_bar = min(state.bars, key=lambda b: b.rank)
             if leader_bar.rank < n_bars:
-                gap_text = f"+{state.gap_pct * 100:.1f}%"
-                gtw, gth = _text_size(draw, gap_text, self.font_branding)
+                gap_text = f"+{state.gap_pct * 100:.1f}% lead"
                 ly = int(self._bar_area_top + bar_gap
                          + leader_bar.rank * (bar_h + bar_gap))
-                gx = x2 + 16 if label_pos != "outside-right" else x2 + vw + 20
-                # Clamp to avoid going off screen.
-                gx = min(gx, self.W - gtw - 20)
-                gy = ly + (bar_h - gth - 8) // 2
-                pad = 6
-                draw.rounded_rectangle(
-                    [gx - pad, gy - pad // 2, gx + gtw + pad, gy + gth + pad // 2],
-                    radius=4, fill=(*accent_c, 220),
-                )
-                draw.text((gx, gy), gap_text, fill=(255, 255, 255, 245),
-                          font=self.font_branding)
+                leader_bar_w = int((leader_bar.value / max(state.max_value, 1e-9))
+                                   * max_bar_w)
+                gx = self._margin_left + leader_bar_w
+                gy = ly - 4
+                draw.text((gx, gy), gap_text,
+                          fill=(*accent_c, 200), font=self.font_watermark,
+                          anchor="rb")
 
-        # Leader change flash overlay.
+        # Leader change alert — sleek top banner, slides in/out.
         if (self.cfg.show_leader_alerts and th.show_leader_alerts
                 and state.leader_changed and state.new_leader):
             t = state.leader_alert_t
-            # Fade: in 0–0.2, hold 0.2–0.8, out 0.8–1.0.
-            if t < 0.2:
-                flash_alpha = t / 0.2
-            elif t > 0.8:
-                flash_alpha = (1.0 - t) / 0.2
+            # Slide: in 0–0.15, hold 0.15–0.85, out 0.85–1.0.
+            if t < 0.15:
+                slide = t / 0.15
+            elif t > 0.85:
+                slide = (1.0 - t) / 0.15
             else:
-                flash_alpha = 1.0
-            flash_alpha = max(0.0, min(1.0, flash_alpha))
-            a = int(255 * flash_alpha)
-            if a > 10:
-                alert_text = f"NEW LEADER: {state.new_leader.upper()}"
-                atw, ath = _text_size(draw, alert_text, self.font_title)
-                ax = (self.W - atw) // 2
-                ay = (self.H - ath) // 2
-                # Dark backdrop.
-                draw.rectangle(
-                    [ax - 20, ay - 15, ax + atw + 20, ay + ath + 15],
-                    fill=(0, 0, 0, a // 2),
-                )
-                # Shadow.
-                draw.text((ax + 2, ay + 2), alert_text,
-                          fill=(0, 0, 0, a), font=self.font_title)
-                # Main text in accent color.
-                draw.text((ax, ay), alert_text,
-                          fill=(*accent_c, a), font=self.font_title)
+                slide = 1.0
+            slide = max(0.0, min(1.0, slide))
+            if slide > 0.02:
+                banner_h = max(32, int(self.H * 0.037))
+                banner_w = int(self.W * 0.55)
+                bx = (self.W - banner_w) // 2
+                # Slide from above top edge.
+                by = int(-banner_h + slide * (banner_h + 6))
+                banner = Image.new("RGBA", (banner_w, banner_h), (0, 0, 0, 0))
+                bd = ImageDraw.Draw(banner)
+                bd.rectangle([0, 0, banner_w, banner_h],
+                             fill=(0, 0, 0, int(200 * slide)))
+                # Accent left border.
+                bd.rectangle([0, 0, 4, banner_h],
+                             fill=(*accent_c, int(255 * slide)))
+                alert_text = f"NEW #1 \u2014 {state.new_leader}"
+                bd.text((14, (banner_h - _text_size(bd, alert_text,
+                         self.font_branding)[1]) // 2),
+                        alert_text,
+                        fill=(255, 255, 255, int(240 * slide)),
+                        font=self.font_branding)
+                img.paste(banner, (bx, by), banner)
+                draw = ImageDraw.Draw(img)
 
         return img
 
@@ -1379,75 +1355,64 @@ class FrameRenderer:
         accent_c = _hex_to_rgb(th.accent_color)
         scale = self.H / 1080
 
-        # Title: FINAL STANDINGS.
-        title_text = "FINAL STANDINGS"
-        ttw, tth = _text_size(draw, title_text, self.font_title)
-        draw.text((self.W // 2, int(self.H * 0.06)), title_text,
+        # Title.
+        draw.text((self.W // 2, int(self.H * 0.05)), "FINAL STANDINGS",
                   fill=(*text_c, 240), font=self.font_title, anchor="mt")
 
-        # Left column: final top 10.
-        col_x = int(self.W * 0.08)
-        row_y = int(self.H * 0.14)
-        row_h = max(20, int(self.H * 0.055))
+        # Subtitle with title from config.
+        if self.cfg.title:
+            draw.text((self.W // 2, int(self.H * 0.05 + 50 * scale)),
+                      self.cfg.title, fill=(*text2_c, 180),
+                      font=self.font_subtitle, anchor="mt")
+
+        # Final top 10 standings.
+        col_x = int(self.W * 0.06)
+        row_y = int(self.H * 0.15)
+        row_h = max(18, int(self.H * 0.048))
         sorted_bars = sorted(final_state.bars, key=lambda b: b.rank)
+
         for i, bar in enumerate(sorted_bars[:10]):
             rank = i + 1
-            name = bar.player
             val = f"{bar.value:,.0f}"
             color_hex = _color_for_bar(bar, self.cfg.use_team_colors)
             bar_rgb = _hex_to_rgb(color_hex)
 
-            # Rank number.
-            draw.text((col_x, row_y), f"{rank}.",
-                      fill=(*text2_c, 200), font=self.font_value)
+            # Mini bar background.
+            bar_w = int((bar.value / max(final_state.max_value, 1e-9))
+                        * (self.W * 0.85))
+            _draw_rounded_rect(draw, (col_x, row_y, col_x + bar_w, row_y + row_h - 2),
+                               radius=3, fill=(*bar_rgb, 100))
 
-            # Color dot.
-            dot_r = max(4, int(row_h * 0.2))
-            dot_x = col_x + int(30 * scale)
-            dot_y = row_y + row_h // 2
-            draw.ellipse([dot_x - dot_r, dot_y - dot_r,
-                          dot_x + dot_r, dot_y + dot_r],
-                         fill=(*bar_rgb, 255))
-
-            # Name and value.
-            draw.text((dot_x + dot_r + 8, row_y), name,
-                      fill=(*text_c, 230), font=self.font_name)
-            draw.text((self.W // 2 - 20, row_y), val,
-                      fill=(*text2_c, 200), font=self.font_value, anchor="rt")
+            # Rank + name.
+            draw.text((col_x + 6, row_y), f"{rank}. {bar.player}",
+                      fill=(*text_c, 230), font=self.font_value)
+            # Value right-aligned.
+            draw.text((col_x + bar_w - 6, row_y), val,
+                      fill=(*text_c, 200), font=self.font_value, anchor="rt")
             row_y += row_h
 
-        # Right column: stats.
-        stats_x = int(self.W * 0.55)
-        stats_y = int(self.H * 0.14)
-        line_h = max(18, int(self.H * 0.04))
+        # Leadership Timeline section.
+        row_y += int(row_h * 0.5)
+        draw.text((col_x, row_y), "LEADERSHIP TIMELINE",
+                  fill=(*accent_c, 220), font=self.font_name)
+        row_y += int(row_h * 1.2)
 
-        # Reign history.
-        draw.text((stats_x, stats_y), "LEADERS",
-                  fill=(*accent_c, 230), font=self.font_name)
-        stats_y += int(line_h * 1.3)
-        for r in reigns[:6]:
+        for r in reigns[:8]:
             end = r.end_label if r.end_label else "present"
-            reign_line = f"{r.player} ({r.start_label}\u2014{end})"
-            draw.text((stats_x, stats_y), reign_line,
+            line = f"\u25B6 {r.player}  ({r.start_label} \u2014 {end})"
+            draw.text((col_x + 10, row_y), line,
                       fill=(*text2_c, 200), font=self.font_value)
-            stats_y += line_h
+            row_y += row_h
 
-        # Total unique players.
-        stats_y += line_h
+        # Stats.
+        row_y += int(row_h * 0.5)
         if keyframes:
             all_players = set()
             for kf in keyframes:
                 for e in kf.entries:
                     all_players.add(e.player)
-            draw.text((stats_x, stats_y),
+            draw.text((col_x, row_y),
                       f"Total players in top {self.cfg.top_n}: {len(all_players)}",
-                      fill=(*text2_c, 200), font=self.font_value)
-            stats_y += line_h
-
-        # Biggest lead.
-        if final_state.gap_pct > 0:
-            draw.text((stats_x, stats_y),
-                      f"Final gap: +{final_state.gap_pct * 100:.1f}% over #2",
-                      fill=(*text2_c, 200), font=self.font_value)
+                      fill=(*text2_c, 160), font=self.font_watermark)
 
         return img

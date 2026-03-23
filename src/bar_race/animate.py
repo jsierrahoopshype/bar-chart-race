@@ -343,11 +343,11 @@ def populate_leader_overlays(
             f.leader_changed = True
             alert_countdown -= 1
 
-        # Reign text.
+        # Reign text — show actual end label, only "present" for active last reign.
         if reigns:
             r = reigns[-1]
             end = r.end_label if r.end_label else "present"
-            f.reign_text = f"#1: {r.player} ({r.start_label}\u2014{end})"
+            f.reign_text = f"All-time leader: {r.player} since {r.start_label}"
 
         # Gap percentage.
         if leader_val > 0 and second_val > 0:
