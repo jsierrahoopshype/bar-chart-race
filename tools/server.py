@@ -68,6 +68,15 @@ def _run_pipeline(job_id: str, cfg: Config, input_path: str, temp_theme_slug: st
         frames = interpolate_frames(kfs, total_frames=body_frames, top_n=cfg.top_n)
         _compute_progressive_max(frames, headroom=0.12)
 
+        # Intro / outro hold frames.
+        from bar_race.pipeline import _hold_frames
+        intro_count = int(cfg.fps * cfg.intro_hold_sec)
+        outro_count = int(cfg.fps * cfg.outro_hold_sec)
+        if intro_count and frames:
+            frames = _hold_frames(frames[0], intro_count) + frames
+        if outro_count and frames:
+            frames = frames + _hold_frames(frames[-1], outro_count)
+
         total = len(frames)
         q.put({"event": "status", "data": f"Rendering {total} frames..."})
         renderer = FrameRenderer(cfg)

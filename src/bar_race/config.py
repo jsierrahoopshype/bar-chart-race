@@ -185,7 +185,7 @@ class Config:
 
     # --- intro / outro holds -----------------------------------------------
     intro_hold_sec: float = 0.0
-    outro_hold_sec: float = 0.0
+    outro_hold_sec: float = 5.0
 
     def __post_init__(self) -> None:
         fonts = default_fonts()
