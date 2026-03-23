@@ -66,10 +66,10 @@ class FrameState:
 
     # Overlay state (populated by post-processing).
     leader: str = ""                        # current #1 player name
-    reign_text: str = ""                    # top-right "All-time leader: ..."
     reign_history: list[str] = field(default_factory=list)  # recent leaders log
     gap_pct: float = 0.0                   # % gap between #1 and #2
     show_gap: bool = False                  # True when gap > threshold
+    players_seen: int = 0                   # cumulative unique players tracked
 
 
 @dataclass
@@ -298,8 +298,17 @@ def populate_leader_overlays(
     reigns: list[ReignPeriod] = []
     prev_leader = ""
     gap_active = False
+    all_players_seen: set[str] = set()
+    is_last_frame = False
 
     for i, f in enumerate(frames):
+        is_last_frame = (i == len(frames) - 1)
+
+        # Track unique players.
+        for b in f.bars:
+            all_players_seen.add(b.player)
+        f.players_seen = len(all_players_seen)
+
         # Determine current leader (lowest rank, highest value).
         leader = ""
         leader_val = 0.0
@@ -323,16 +332,12 @@ def populate_leader_overlays(
 
         prev_leader = leader
 
-        # Reign text (top-right).
-        if reigns:
-            r = reigns[-1]
-            f.reign_text = f"All-time leader: {r.player} since {r.start_label}"
-
         # Reign history log (bottom-left, most recent first, max 4).
+        # Use current date_label as end for the active leader (not "present").
         if reigns:
             history: list[str] = []
             for r in reversed(reigns[-4:]):
-                end = r.end_label if r.end_label else "present"
+                end = r.end_label if r.end_label else f.date_label
                 history.append(f"{r.player} ({r.start_label}\u2014{end})")
             f.reign_history = history
 
@@ -349,7 +354,7 @@ def populate_leader_overlays(
             f.gap_pct = 0.0
             f.show_gap = False
 
-    # Close final reign.
+    # Close final reign with the last date label.
     if reigns and frames:
         reigns[-1].end_label = frames[-1].date_label
 

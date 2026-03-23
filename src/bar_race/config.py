@@ -188,7 +188,6 @@ class Config:
     outro_hold_sec: float = 5.0
 
     # --- overlays -------------------------------------------------------------
-    show_reign_tracker: bool = True
     show_gap_alerts: bool = True
     gap_alert_threshold: float = 0.15   # 15 %
 

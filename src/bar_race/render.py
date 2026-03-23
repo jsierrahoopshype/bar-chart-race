@@ -673,7 +673,7 @@ def _load_headshot(
     # For rectangle: landscape orientation — width > height.
     if style == "rectangle" and bar_h > 0:
         rect_h = bar_h
-        rect_w = max(1, int(bar_h * 1.3))
+        rect_w = max(1, int(bar_h * 1.4))
         effective_size = rect_h
     else:
         rect_h = rect_w = size
@@ -698,10 +698,10 @@ def _load_headshot(
         raw = Image.open(filepath).convert("RGBA")
 
         if style == "rectangle":
-            # Landscape crop: full width, top 80 % of height (face area).
+            # Full width, crop top 80 % of height (face/upper body).
             src_w, src_h = raw.size
             crop_h = int(src_h * 0.80)
-            raw = raw.crop((0, 0, src_w, crop_h))
+            raw = raw.crop((0, 0, src_w, max(1, crop_h)))
             result = raw.resize((rect_w, rect_h), Image.LANCZOS)
 
         elif style == "shrink-pad":
@@ -839,7 +839,10 @@ class FrameRenderer:
             _draw_border_frame(bg_draw, self.W, self.H, th)
 
         # Layout constants
-        self._margin_left = int(self.W * 0.22)
+        if th.label_position == "inside":
+            self._margin_left = int(self.W * 0.18)
+        else:
+            self._margin_left = int(self.W * 0.22)
         self._margin_right = int(self.W * 0.05)
         self._bar_area_top = int(self.H * 0.16)
         self._bar_area_bottom = int(self.H * 0.86)
@@ -1275,13 +1278,6 @@ class FrameRenderer:
 
         # --- overlays ---------------------------------------------------------
 
-        # Reign tracker — subtle text in top-right, below title area.
-        if self.cfg.show_reign_tracker and th.show_reign_tracker and state.reign_text:
-            rx = self.W - self._margin_right - 10
-            ry = int(self.H * 0.12)
-            draw.text((rx, ry), state.reign_text,
-                      fill=(*text2_c, 128), font=self.font_watermark, anchor="rt")
-
         # Gap alert — small accent text above the leader bar.
         if (self.cfg.show_gap_alerts and th.show_gap_alerts
                 and state.show_gap and state.bars):
@@ -1299,7 +1295,7 @@ class FrameRenderer:
                           anchor="rb")
 
         # Leadership timeline — running log in bottom-left.
-        if self.cfg.show_reign_tracker and state.reign_history:
+        if state.reign_history:
             tl_x = self._margin_right + 10
             tl_y = self._bar_area_bottom + 8
             line_h = max(14, int(self.H * 0.018))
@@ -1307,6 +1303,14 @@ class FrameRenderer:
                 draw.text((tl_x, tl_y), entry,
                           fill=(*text2_c, 110), font=self.font_watermark)
                 tl_y += line_h
+
+        # Player counter — below subtitle in top-left.
+        if state.players_seen > 0:
+            counter_text = f"Players tracked: {state.players_seen}"
+            cx = self._margin_right + 10
+            cy = int(self.H * 0.04 + 80 * (self.H / 1080))
+            draw.text((cx, cy), counter_text,
+                      fill=(*text2_c, 100), font=self.font_watermark)
 
         return img
 
