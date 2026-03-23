@@ -668,8 +668,14 @@ def _load_headshot(
       rectangle  — square crop, no circle, full bar height
     """
     style = theme.headshot_style
-    # For rectangle, size is bar_h (full height, no gap).
-    effective_size = bar_h if (style == "rectangle" and bar_h > 0) else size
+    # For rectangle, height = bar_h, width = 75% of bar_h (portrait).
+    if style == "rectangle" and bar_h > 0:
+        rect_h = bar_h
+        rect_w = max(1, int(bar_h * 0.75))
+        effective_size = rect_h  # used for cache key
+    else:
+        rect_h = rect_w = size
+        effective_size = size
 
     cache_key = f"{player}:{effective_size}:{theme.slug}"
     if cache_key in _headshot_cache:
@@ -684,13 +690,35 @@ def _load_headshot(
     if filepath is not None:
         raw = Image.open(filepath).convert("RGBA")
 
+        # Skip silhouette placeholders (low color variance).
+        gray = np.array(raw.convert("L"), dtype=np.float32)
+        if float(np.std(gray)) < 25:
+            _headshot_cache[cache_key] = None
+            return None
+
         if style == "rectangle":
-            # Square crop from centre, resize to bar_h × bar_h.
-            s = min(raw.width, raw.height)
-            left = (raw.width - s) // 2
-            top = (raw.height - s) // 2
-            raw = raw.crop((left, top, left + s, top + s))
-            result = raw.resize((effective_size, effective_size), Image.LANCZOS)
+            # Portrait crop focusing on head area (top 70%, 3:4 aspect).
+            # NBA CDN images are 1040x760 landscape — crop to portrait.
+            src_w, src_h = raw.size
+            # Target aspect ratio matches rect_w:rect_h.
+            target_ratio = rect_w / rect_h  # ~0.75
+            src_ratio = src_w / src_h
+            if src_ratio > target_ratio:
+                # Source is wider — crop horizontally, center.
+                crop_w = int(src_h * target_ratio)
+                crop_h = src_h
+                left = (src_w - crop_w) // 2
+                top = 0
+            else:
+                # Source is taller — crop vertically, take top 70%.
+                crop_w = src_w
+                crop_h = int(src_w / target_ratio)
+                left = 0
+                top = 0  # anchor to top (head area)
+            crop_h = min(crop_h, src_h)
+            crop_w = min(crop_w, src_w)
+            raw = raw.crop((left, top, left + crop_w, top + crop_h))
+            result = raw.resize((rect_w, rect_h), Image.LANCZOS)
 
         elif style == "shrink-pad":
             # 80 % headshot centred on filled circle of team color.
