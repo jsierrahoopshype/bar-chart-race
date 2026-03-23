@@ -83,7 +83,6 @@ class Theme:
 
     # Overlays
     show_reign_tracker: bool = True
-    show_leader_alerts: bool = True
     show_gap_alerts: bool = True
 
     # Noise & vignette (inherited from config but theme can override)

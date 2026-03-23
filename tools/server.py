@@ -70,9 +70,8 @@ def _run_pipeline(job_id: str, cfg: Config, input_path: str, temp_theme_slug: st
 
         # Leader overlay tracking.
         from bar_race.animate import populate_leader_overlays
-        reigns = populate_leader_overlays(
+        populate_leader_overlays(
             frames, fps=cfg.fps,
-            alert_duration=cfg.leader_alert_duration,
             gap_threshold=cfg.gap_alert_threshold,
         )
 
@@ -86,48 +85,20 @@ def _run_pipeline(job_id: str, cfg: Config, input_path: str, temp_theme_slug: st
             frames = frames + _hold_frames(frames[-1], outro_count)
 
         total = len(frames)
+        q.put({"event": "status", "data": f"Rendering {total} frames..."})
         renderer = FrameRenderer(cfg)
         preset = cfg.get_preset()
 
-        # Summary card frames (8 seconds with 0.5s crossfade).
-        summary_img = None
-        summary_count = 0
-        if cfg.show_summary_card and frames:
-            summary_img = renderer.render_summary(frames[-1], reigns, kfs)
-            summary_count = int(cfg.fps * 8)
-            total += summary_count
-
-        q.put({"event": "status", "data": f"Rendering {total} frames..."})
-        crossfade_len = int(cfg.fps * 0.5)
         frame_count = 0
 
         def frame_gen():
             nonlocal frame_count
-            final_img = None
             for fs in frames:
-                final_img = renderer.render(fs)
-                yield final_img.convert("RGB").tobytes()
+                yield renderer.render_rgb_bytes(fs)
                 frame_count += 1
                 if frame_count % 10 == 0:
                     pct = int(100 * frame_count / max(total, 1))
                     q.put({"event": "progress", "data": str(pct)})
-
-            # Summary card with crossfade.
-            if summary_img is not None and final_img is not None:
-                import numpy as _np
-                bar_arr = _np.array(final_img.convert("RGB"))
-                sum_arr = _np.array(summary_img.convert("RGB"))
-                for si in range(summary_count):
-                    if si < crossfade_len:
-                        t = si / max(crossfade_len - 1, 1)
-                        blended = (bar_arr * (1 - t) + sum_arr * t).astype(_np.uint8)
-                        yield blended.tobytes()
-                    else:
-                        yield sum_arr.tobytes()
-                    frame_count += 1
-                    if frame_count % 10 == 0:
-                        pct = int(100 * frame_count / max(total, 1))
-                        q.put({"event": "progress", "data": str(pct)})
 
         q.put({"event": "status", "data": "Encoding video..."})
         encode(

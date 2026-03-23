@@ -841,10 +841,6 @@ class FrameRenderer:
         # Layout constants
         self._margin_left = int(self.W * 0.22)
         self._margin_right = int(self.W * 0.05)
-        # For "inside" label themes, bars start at left margin — equalize.
-        if th.label_position == "inside":
-            self._margin_left = int(self.W * 0.05)
-            self._margin_right = int(self.W * 0.05)
         self._bar_area_top = int(self.H * 0.16)
         self._bar_area_bottom = int(self.H * 0.86)
 
@@ -1302,120 +1298,18 @@ class FrameRenderer:
                           fill=(*accent_c, 200), font=self.font_watermark,
                           anchor="rb")
 
-        # Leader change alert — sleek top banner, slides in/out.
-        if (self.cfg.show_leader_alerts and th.show_leader_alerts
-                and state.leader_changed and state.new_leader):
-            t = state.leader_alert_t
-            # Slide: in 0–0.15, hold 0.15–0.85, out 0.85–1.0.
-            if t < 0.15:
-                slide = t / 0.15
-            elif t > 0.85:
-                slide = (1.0 - t) / 0.15
-            else:
-                slide = 1.0
-            slide = max(0.0, min(1.0, slide))
-            if slide > 0.02:
-                banner_h = max(32, int(self.H * 0.037))
-                banner_w = int(self.W * 0.55)
-                bx = (self.W - banner_w) // 2
-                # Slide from above top edge.
-                by = int(-banner_h + slide * (banner_h + 6))
-                banner = Image.new("RGBA", (banner_w, banner_h), (0, 0, 0, 0))
-                bd = ImageDraw.Draw(banner)
-                bd.rectangle([0, 0, banner_w, banner_h],
-                             fill=(0, 0, 0, int(200 * slide)))
-                # Accent left border.
-                bd.rectangle([0, 0, 4, banner_h],
-                             fill=(*accent_c, int(255 * slide)))
-                alert_text = f"NEW #1 \u2014 {state.new_leader}"
-                bd.text((14, (banner_h - _text_size(bd, alert_text,
-                         self.font_branding)[1]) // 2),
-                        alert_text,
-                        fill=(255, 255, 255, int(240 * slide)),
-                        font=self.font_branding)
-                img.paste(banner, (bx, by), banner)
-                draw = ImageDraw.Draw(img)
+        # Leadership timeline — running log in bottom-left.
+        if self.cfg.show_reign_tracker and state.reign_history:
+            tl_x = self._margin_right + 10
+            tl_y = self._bar_area_bottom + 8
+            line_h = max(14, int(self.H * 0.018))
+            for entry in state.reign_history[:4]:
+                draw.text((tl_x, tl_y), entry,
+                          fill=(*text2_c, 110), font=self.font_watermark)
+                tl_y += line_h
 
         return img
 
     def render_rgb_bytes(self, state: FrameState) -> bytes:
         """Render a frame and return raw RGB bytes (for ffmpeg pipe)."""
         return self.render(state).convert("RGB").tobytes()
-
-    def render_summary(
-        self,
-        final_state: FrameState,
-        reigns: list,
-        keyframes: list,
-    ) -> Image.Image:
-        """Render a summary card showing final standings and stats."""
-        th = self.theme
-        img = self._bg.copy()
-        draw = ImageDraw.Draw(img)
-
-        text_c = _hex_to_rgb(th.text_color)
-        text2_c = _hex_to_rgb(th.text_secondary_color)
-        accent_c = _hex_to_rgb(th.accent_color)
-        scale = self.H / 1080
-
-        # Title.
-        draw.text((self.W // 2, int(self.H * 0.05)), "FINAL STANDINGS",
-                  fill=(*text_c, 240), font=self.font_title, anchor="mt")
-
-        # Subtitle with title from config.
-        if self.cfg.title:
-            draw.text((self.W // 2, int(self.H * 0.05 + 50 * scale)),
-                      self.cfg.title, fill=(*text2_c, 180),
-                      font=self.font_subtitle, anchor="mt")
-
-        # Final top 10 standings.
-        col_x = int(self.W * 0.06)
-        row_y = int(self.H * 0.15)
-        row_h = max(18, int(self.H * 0.048))
-        sorted_bars = sorted(final_state.bars, key=lambda b: b.rank)
-
-        for i, bar in enumerate(sorted_bars[:10]):
-            rank = i + 1
-            val = f"{bar.value:,.0f}"
-            color_hex = _color_for_bar(bar, self.cfg.use_team_colors)
-            bar_rgb = _hex_to_rgb(color_hex)
-
-            # Mini bar background.
-            bar_w = int((bar.value / max(final_state.max_value, 1e-9))
-                        * (self.W * 0.85))
-            _draw_rounded_rect(draw, (col_x, row_y, col_x + bar_w, row_y + row_h - 2),
-                               radius=3, fill=(*bar_rgb, 100))
-
-            # Rank + name.
-            draw.text((col_x + 6, row_y), f"{rank}. {bar.player}",
-                      fill=(*text_c, 230), font=self.font_value)
-            # Value right-aligned.
-            draw.text((col_x + bar_w - 6, row_y), val,
-                      fill=(*text_c, 200), font=self.font_value, anchor="rt")
-            row_y += row_h
-
-        # Leadership Timeline section.
-        row_y += int(row_h * 0.5)
-        draw.text((col_x, row_y), "LEADERSHIP TIMELINE",
-                  fill=(*accent_c, 220), font=self.font_name)
-        row_y += int(row_h * 1.2)
-
-        for r in reigns[:8]:
-            end = r.end_label if r.end_label else "present"
-            line = f"\u25B6 {r.player}  ({r.start_label} \u2014 {end})"
-            draw.text((col_x + 10, row_y), line,
-                      fill=(*text2_c, 200), font=self.font_value)
-            row_y += row_h
-
-        # Stats.
-        row_y += int(row_h * 0.5)
-        if keyframes:
-            all_players = set()
-            for kf in keyframes:
-                for e in kf.entries:
-                    all_players.add(e.player)
-            draw.text((col_x, row_y),
-                      f"Total players in top {self.cfg.top_n}: {len(all_players)}",
-                      fill=(*text2_c, 160), font=self.font_watermark)
-
-        return img

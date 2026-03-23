@@ -323,9 +323,7 @@ a { color:var(--accent2); }
     <div class="section">
       <div class="section-title">Overlays</div>
       <label class="toggle"><input type="checkbox" id="showReignTracker" checked onchange="update()"> Reign Tracker</label>
-      <label class="toggle"><input type="checkbox" id="showLeaderAlerts" checked onchange="update()"> Leader Change Alerts</label>
       <label class="toggle"><input type="checkbox" id="showGapAlerts" checked onchange="update()"> Gap Alerts</label>
-      <label class="toggle"><input type="checkbox" id="showSummaryCard" checked onchange="update()"> Summary Card</label>
     </div>
 
     <!-- Branding -->
@@ -463,9 +461,7 @@ function collectOverrides() {
     branding_text: getVal('brandingText') || '',
     branding_color: getVal('brandingColorText') || '#ff0000',
     show_reign_tracker: getCheck('showReignTracker'),
-    show_leader_alerts: getCheck('showLeaderAlerts'),
     show_gap_alerts: getCheck('showGapAlerts'),
-    show_summary_card: getCheck('showSummaryCard'),
   };
 }
 

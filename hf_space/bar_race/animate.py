@@ -65,13 +65,11 @@ class FrameState:
     max_value: float
 
     # Overlay state (populated by post-processing).
-    leader: str = ""              # current #1 player name
-    leader_changed: bool = False  # True on frames where leader changes
-    new_leader: str = ""          # new leader name (set on change frames)
-    leader_alert_t: float = 0.0  # 0‥1 progress through the alert flash
-    reign_text: str = ""          # e.g. "#1: LeBron James (2023—present)"
-    gap_pct: float = 0.0         # % gap between #1 and #2
-    show_gap: bool = False       # True when gap > threshold
+    leader: str = ""                        # current #1 player name
+    reign_text: str = ""                    # top-right "All-time leader: ..."
+    reign_history: list[str] = field(default_factory=list)  # recent leaders log
+    gap_pct: float = 0.0                   # % gap between #1 and #2
+    show_gap: bool = False                  # True when gap > threshold
 
 
 @dataclass
@@ -290,7 +288,6 @@ class ReignPeriod:
 def populate_leader_overlays(
     frames: list[FrameState],
     fps: int = 60,
-    alert_duration: float = 1.5,
     gap_threshold: float = 0.10,
     gap_hysteresis: float = 0.08,
 ) -> list[ReignPeriod]:
@@ -298,11 +295,8 @@ def populate_leader_overlays(
     if not frames:
         return []
 
-    alert_frames = int(fps * alert_duration)
     reigns: list[ReignPeriod] = []
     prev_leader = ""
-    alert_countdown = 0
-    alert_name = ""
     gap_active = False
 
     for i, f in enumerate(frames):
@@ -321,33 +315,26 @@ def populate_leader_overlays(
 
         # Detect leader change.
         if leader and leader != prev_leader and prev_leader != "":
-            f.leader_changed = True
-            f.new_leader = leader
-            alert_countdown = alert_frames
-            alert_name = leader
-            # Close previous reign.
             if reigns:
                 reigns[-1].end_label = f.date_label
             reigns.append(ReignPeriod(player=leader, start_label=f.date_label))
         elif leader and not reigns:
-            # First frame — start first reign.
             reigns.append(ReignPeriod(player=leader, start_label=f.date_label))
 
         prev_leader = leader
 
-        # Leader alert progress (0→1 over alert_duration).
-        if alert_countdown > 0:
-            t = 1.0 - (alert_countdown / alert_frames)
-            f.leader_alert_t = t
-            f.new_leader = alert_name
-            f.leader_changed = True
-            alert_countdown -= 1
-
-        # Reign text — show actual end label, only "present" for active last reign.
+        # Reign text (top-right).
         if reigns:
             r = reigns[-1]
-            end = r.end_label if r.end_label else "present"
             f.reign_text = f"All-time leader: {r.player} since {r.start_label}"
+
+        # Reign history log (bottom-left, most recent first, max 4).
+        if reigns:
+            history: list[str] = []
+            for r in reversed(reigns[-4:]):
+                end = r.end_label if r.end_label else "present"
+                history.append(f"{r.player} ({r.start_label}\u2014{end})")
+            f.reign_history = history
 
         # Gap percentage.
         if leader_val > 0 and second_val > 0:
