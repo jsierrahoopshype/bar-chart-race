@@ -398,9 +398,12 @@ def populate_leader_overlays(
 
         # Build tenure leaderboard column (top 3 by tenure).
         if tenure_counts:
+            # Use "yrs" only if total keyframes is small (age-based data).
+            unit = "yrs" if n_steps <= 50 else ""
             top_tenure = sorted(tenure_counts.items(), key=lambda x: -x[1])[:3]
             f.tenure_leaders = [
-                f"{_abbrev(p)}: {t} yrs" for p, t in top_tenure
+                f"{_abbrev(p)}: {t}{' ' + unit if unit else ''}"
+                for p, t in top_tenure
             ]
 
         # Determine current leader.

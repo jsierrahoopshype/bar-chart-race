@@ -1298,10 +1298,10 @@ class FrameRenderer:
                           fill=(*accent_c, 200), font=self.font_watermark,
                           anchor="rb")
 
-        # --- bottom panel: three columns, ends at 75% height ----------------
-        panel_y = self._bar_area_bottom + 6
-        panel_max_y = int(self.H * 0.85)  # hard stop well above date
-        line_h = max(12, int(self.H * 0.014))
+        # --- bottom panel: three columns between bars and date ---------------
+        panel_y = self._bar_area_bottom + 4
+        panel_max_y = int(self.H * 0.93) - 10  # stop above the date
+        line_h = max(11, int(self.H * 0.014))
         header_c = (*text_c, 178)
         row_c = (*text2_c, 110)
         panel_w = int(self.W * 0.68)
