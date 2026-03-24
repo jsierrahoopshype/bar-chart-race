@@ -83,7 +83,7 @@ def run(cfg: Config) -> None:
     _compute_progressive_max(frames, headroom=0.12)
 
     # Leader overlay tracking.
-    reigns = populate_leader_overlays(
+    reigns, sound_events = populate_leader_overlays(
         frames,
         fps=cfg.fps,
         gap_threshold=cfg.gap_alert_threshold,
@@ -120,5 +120,25 @@ def run(cfg: Config) -> None:
         fps=cfg.fps,
         bitrate=cfg.bitrate,
     )
+
+    # Sound effects (optional post-processing).
+    if cfg.add_sound_effects and sound_events:
+        try:
+            from bar_race.sound import generate_audio, merge_audio_video
+            import tempfile
+            wav_path = tempfile.mktemp(suffix=".wav")
+            sys.stderr.write("Generating sound effects...\n")
+            generate_audio(sound_events, total, cfg.fps, wav_path)
+            output_with_audio = cfg.output.replace(".mp4", "_audio.mp4")
+            if merge_audio_video(cfg.output, wav_path, output_with_audio):
+                import os
+                os.replace(output_with_audio, cfg.output)
+                sys.stderr.write("Sound effects merged.\n")
+            try:
+                os.unlink(wav_path)
+            except OSError:
+                pass
+        except Exception as e:
+            sys.stderr.write(f"Sound effects skipped: {e}\n")
 
     sys.stderr.write(f"Done — saved to {cfg.output}\n")

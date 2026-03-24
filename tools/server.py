@@ -70,7 +70,7 @@ def _run_pipeline(job_id: str, cfg: Config, input_path: str, temp_theme_slug: st
 
         # Leader overlay tracking.
         from bar_race.animate import populate_leader_overlays
-        populate_leader_overlays(
+        _reigns, _sound_events = populate_leader_overlays(
             frames, fps=cfg.fps,
             gap_threshold=cfg.gap_alert_threshold,
         )

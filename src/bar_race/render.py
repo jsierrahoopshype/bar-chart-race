@@ -815,6 +815,7 @@ class FrameRenderer:
         self.font_title = _load_font(bold_path, max(12, int(44 * scale)))
         self.font_subtitle = _load_font(medium_path, max(10, int(26 * scale)))
         self.font_name = _load_font(medium_path, max(10, int(24 * scale)))
+        self.font_tenure = _load_font(regular_path, max(8, int(17 * scale)))
         self.font_value = _load_font(regular_path, max(10, int(20 * scale)))
         self.font_date = _load_font(bold_path, max(14, int(72 * scale)))
         self.font_watermark = _load_font(light_path, max(10, int(18 * scale)))
@@ -1114,10 +1115,22 @@ class FrameRenderer:
                 name_text = name_text.upper()
             elif th.label_case == "title":
                 name_text = name_text.title()
+            tenure_text = f" ({bar.tenure})" if (
+                self.cfg.show_tenure_counter and bar.tenure > 0
+            ) else ""
             tw, th_h = _text_size(draw, name_text, self.font_name)
 
             val_text = f"{bar.value:,.0f}{th.value_suffix}"
             vw, vh = _text_size(draw, val_text, self.font_value)
+
+            # Milestone shimmer on bar.
+            if bar.milestone_flash > 0 and self.cfg.show_milestones:
+                shimmer_a = int(60 * bar.milestone_flash)
+                shimmer_c = _hex_to_rgb(th.accent_color)
+                _draw_rounded_rect(
+                    draw, (x1, y1, x2, y2), radius=radius,
+                    fill=(*shimmer_c, shimmer_a),
+                )
 
             label_pos = th.label_position
 
@@ -1160,6 +1173,11 @@ class FrameRenderer:
                             display_name = name_text[:3] + "…"
                     draw.text((text_left, name_y), display_name,
                               fill=(255, 255, 255, alpha), font=self.font_name)
+                    if tenure_text:
+                        tnw = _text_size(draw, display_name, self.font_name)[0]
+                        draw.text((text_left + tnw, name_y + 2), tenure_text,
+                                  fill=(255, 255, 255, int(alpha * 0.5)),
+                                  font=self.font_tenure)
                     # Value right-aligned inside bar.
                     val_y = y1 + (bar_h - vh) // 2
                     draw.text((text_right - vw + 1, val_y + 1), val_text,
@@ -1184,6 +1202,10 @@ class FrameRenderer:
                 name_y = y1 + (bar_h - th_h) // 2
                 draw.text((name_x, name_y), name_text,
                           fill=(*text_c, alpha), font=self.font_name)
+                if tenure_text:
+                    draw.text((x1 - 10, name_y + 2), tenure_text,
+                              fill=(*text2_c, int(alpha * 0.6)),
+                              font=self.font_tenure, anchor="rt")
                 val_y = y1 + (bar_h - vh) // 2
                 draw.text((x2 + 10, val_y), val_text,
                           fill=(*text2_c, alpha), font=self.font_value)
@@ -1198,6 +1220,10 @@ class FrameRenderer:
                 name_y = y1 + (bar_h - th_h) // 2
                 draw.text((name_x, name_y), name_text,
                           fill=(*text_c, alpha), font=self.font_name)
+                if tenure_text:
+                    draw.text((x1 - 10, name_y + 2), tenure_text,
+                              fill=(*text2_c, int(alpha * 0.6)),
+                              font=self.font_tenure, anchor="rt")
 
                 if bar_w > vw + 20:
                     val_x = x2 - vw - 10
@@ -1293,6 +1319,35 @@ class FrameRenderer:
                 draw.text((gx, gy), gap_text,
                           fill=(*accent_c, 200), font=self.font_watermark,
                           anchor="rb")
+
+        # Milestone callout — sleek pill banner at top.
+        if (self.cfg.show_milestones and state.milestone_text
+                and state.milestone_alert_t > 0):
+            t = state.milestone_alert_t
+            # Fade: in 0–0.12, hold 0.12–0.88, out 0.88–1.0.
+            if t < 0.12:
+                ma = t / 0.12
+            elif t > 0.88:
+                ma = (1.0 - t) / 0.12
+            else:
+                ma = 1.0
+            ma = max(0.0, min(1.0, ma))
+            if ma > 0.02:
+                a = int(220 * ma)
+                mtw, mth = _text_size(draw, state.milestone_text,
+                                      self.font_branding)
+                mx = (self.W - mtw) // 2
+                my = int(self.H * 0.005)
+                pad_x, pad_y = 14, 6
+                draw.rounded_rectangle(
+                    [mx - pad_x, my - pad_y, mx + mtw + pad_x,
+                     my + mth + pad_y],
+                    radius=mth // 2 + pad_y,
+                    fill=(0, 0, 0, a),
+                )
+                draw.text((mx, my), state.milestone_text,
+                          fill=(*accent_c, int(240 * ma)),
+                          font=self.font_branding)
 
         # Leadership timeline — running log in bottom-left.
         if state.reign_history:

@@ -54,6 +54,10 @@ class BarState:
     exiting: bool = False
     alpha: float = 1.0  # 0→1 entering, 1→0 exiting
 
+    # Overlay data
+    tenure: int = 0           # keyframes this player has been in top N
+    milestone_flash: float = 0.0  # 0→1 shimmer progress (0 = none)
+
 
 @dataclass
 class FrameState:
@@ -70,6 +74,10 @@ class FrameState:
     gap_pct: float = 0.0                   # % gap between #1 and #2
     show_gap: bool = False                  # True when gap > threshold
     players_seen: int = 0                   # cumulative unique players tracked
+
+    # Milestone callout
+    milestone_text: str = ""               # e.g. "FASTEST TO 10,000 — LeBron (age 27)"
+    milestone_alert_t: float = 0.0         # 0→1 progress through callout
 
 
 @dataclass
@@ -285,31 +293,115 @@ class ReignPeriod:
     end_label: str = ""
 
 
+def _detect_milestones(max_val: float) -> list[int]:
+    """Choose milestone thresholds based on data scale."""
+    if max_val < 10_000:
+        return [500, 1_000, 2_000, 3_000, 5_000, 7_500]
+    return [5_000, 10_000, 15_000, 20_000, 25_000, 30_000, 35_000, 40_000]
+
+
+@dataclass
+class SoundEvent:
+    """A sound cue at a specific frame index."""
+    frame: int
+    kind: str    # "whoosh", "ding", "boom"
+    intensity: float = 1.0  # 0‥1
+
+
 def populate_leader_overlays(
     frames: list[FrameState],
     fps: int = 60,
     gap_threshold: float = 0.10,
     gap_hysteresis: float = 0.08,
-) -> list[ReignPeriod]:
-    """Fill in leader/reign/gap fields on each frame. Returns reign history."""
+) -> tuple[list[ReignPeriod], list[SoundEvent]]:
+    """Fill in leader/reign/gap/tenure/milestone fields. Returns (reigns, sound_events)."""
     if not frames:
-        return []
+        return [], []
 
     reigns: list[ReignPeriod] = []
+    sound_events: list[SoundEvent] = []
     prev_leader = ""
     gap_active = False
     all_players_seen: set[str] = set()
-    is_last_frame = False
+
+    # Tenure: count keyframes per player (increment once per step, not per frame).
+    tenure_counts: dict[str, int] = {}
+    n_steps = 0
+    prev_date_label = ""
+
+    # Milestones: track fastest player to each milestone.
+    max_val = max((b.value for f in frames for b in f.bars), default=0)
+    milestones = _detect_milestones(max_val)
+    # fastest[m] = (player, keyframe_index_when_reached)
+    fastest: dict[int, tuple[str, int]] = {}
+    # reached[player] = set of milestones already passed
+    reached: dict[str, set[int]] = {}
+
+    milestone_alert_countdown = 0
+    milestone_alert_text = ""
+    milestone_alert_frames = int(fps * 2.6)  # 0.3 + 2.0 + 0.3
+    # Track shimmer countdowns per player.
+    shimmer_countdowns: dict[str, int] = {}
+    shimmer_frames = int(fps * 0.5)
+
+    # Track previous ranks for whoosh detection.
+    prev_ranks: dict[str, float] = {}
 
     for i, f in enumerate(frames):
-        is_last_frame = (i == len(frames) - 1)
-
         # Track unique players.
         for b in f.bars:
             all_players_seen.add(b.player)
         f.players_seen = len(all_players_seen)
 
-        # Determine current leader (lowest rank, highest value).
+        # Tenure: increment when date label changes (= new keyframe).
+        if f.date_label != prev_date_label:
+            n_steps += 1
+            for b in f.bars:
+                tenure_counts[b.player] = tenure_counts.get(b.player, 0) + 1
+            prev_date_label = f.date_label
+
+        # Apply tenure to bars.
+        for b in f.bars:
+            b.tenure = tenure_counts.get(b.player, 0)
+
+        # Milestones: check each bar for crossing a threshold.
+        for b in f.bars:
+            player_reached = reached.setdefault(b.player, set())
+            for m in milestones:
+                if m not in player_reached and b.value >= m:
+                    player_reached.add(m)
+                    # Shimmer on the bar.
+                    shimmer_countdowns[b.player] = shimmer_frames
+                    sound_events.append(SoundEvent(frame=i, kind="ding"))
+                    # Check if fastest.
+                    if m not in fastest:
+                        fastest[m] = (b.player, n_steps)
+                    else:
+                        prev_player, prev_steps = fastest[m]
+                        if n_steps < prev_steps:
+                            fastest[m] = (b.player, n_steps)
+                            milestone_alert_countdown = milestone_alert_frames
+                            milestone_alert_text = (
+                                f"FASTEST TO {m:,} \u2014 {b.player} ({f.date_label})"
+                            )
+
+        # Apply shimmer.
+        for b in f.bars:
+            cd = shimmer_countdowns.get(b.player, 0)
+            if cd > 0:
+                b.milestone_flash = cd / shimmer_frames
+                shimmer_countdowns[b.player] = cd - 1
+            else:
+                b.milestone_flash = 0.0
+
+        # Milestone callout progress.
+        if milestone_alert_countdown > 0:
+            t = 1.0 - (milestone_alert_countdown / milestone_alert_frames)
+            f.milestone_text = milestone_alert_text
+            f.milestone_alert_t = t
+            milestone_alert_countdown -= 1
+
+        # Determine current leader.
         leader = ""
         leader_val = 0.0
         second_val = 0.0
@@ -327,13 +419,22 @@ def populate_leader_overlays(
             if reigns:
                 reigns[-1].end_label = f.date_label
             reigns.append(ReignPeriod(player=leader, start_label=f.date_label))
+            sound_events.append(SoundEvent(frame=i, kind="boom"))
         elif leader and not reigns:
             reigns.append(ReignPeriod(player=leader, start_label=f.date_label))
 
+        # Whoosh: detect 3+ position gains.
+        for b in f.bars:
+            pr = prev_ranks.get(b.player)
+            if pr is not None and pr - b.rank >= 3.0:
+                sound_events.append(SoundEvent(
+                    frame=i, kind="whoosh",
+                    intensity=min(1.0, (pr - b.rank) / 5.0),
+                ))
+        prev_ranks = {b.player: b.rank for b in f.bars}
         prev_leader = leader
 
-        # Reign history log (bottom-left, most recent first, max 4).
-        # Use current date_label as end for the active leader (not "present").
+        # Reign history log.
         if reigns:
             history: list[str] = []
             for r in reversed(reigns[-4:]):
@@ -354,8 +455,8 @@ def populate_leader_overlays(
             f.gap_pct = 0.0
             f.show_gap = False
 
-    # Close final reign with the last date label.
+    # Close final reign.
     if reigns and frames:
         reigns[-1].end_label = frames[-1].date_label
 
-    return reigns
+    return reigns, sound_events
