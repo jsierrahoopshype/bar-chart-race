@@ -190,8 +190,9 @@ class Config:
     # --- overlays -------------------------------------------------------------
     show_gap_alerts: bool = True
     gap_alert_threshold: float = 0.15   # 15 %
-    show_tenure_counter: bool = True
-    show_milestones: bool = True
+    show_reign_history: bool = True
+    show_tenure_leaderboard: bool = True
+    show_milestone_records: bool = True
     add_sound_effects: bool = False
 
     def __post_init__(self) -> None:

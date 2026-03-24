@@ -56,7 +56,6 @@ class BarState:
 
     # Overlay data
     tenure: int = 0           # keyframes this player has been in top N
-    milestone_flash: float = 0.0  # 0→1 shimmer progress (0 = none)
 
 
 @dataclass
@@ -70,14 +69,14 @@ class FrameState:
 
     # Overlay state (populated by post-processing).
     leader: str = ""                        # current #1 player name
-    reign_history: list[str] = field(default_factory=list)  # recent leaders log
-    gap_pct: float = 0.0                   # % gap between #1 and #2
-    show_gap: bool = False                  # True when gap > threshold
-    players_seen: int = 0                   # cumulative unique players tracked
+    reign_history: list[str] = field(default_factory=list)
+    gap_pct: float = 0.0
+    show_gap: bool = False
+    players_seen: int = 0
 
-    # Milestone callout
-    milestone_text: str = ""               # e.g. "FASTEST TO 10,000 — LeBron (age 27)"
-    milestone_alert_t: float = 0.0         # 0→1 progress through callout
+    # Bottom panel columns
+    tenure_leaders: list[str] = field(default_factory=list)    # top 3 by tenure
+    milestone_records: list[str] = field(default_factory=list) # fastest-to records
 
 
 @dataclass
@@ -332,17 +331,8 @@ def populate_leader_overlays(
     # Milestones: track fastest player to each milestone.
     max_val = max((b.value for f in frames for b in f.bars), default=0)
     milestones = _detect_milestones(max_val)
-    # fastest[m] = (player, keyframe_index_when_reached)
-    fastest: dict[int, tuple[str, int]] = {}
-    # reached[player] = set of milestones already passed
-    reached: dict[str, set[int]] = {}
-
-    milestone_alert_countdown = 0
-    milestone_alert_text = ""
-    milestone_alert_frames = int(fps * 2.6)  # 0.3 + 2.0 + 0.3
-    # Track shimmer countdowns per player.
-    shimmer_countdowns: dict[str, int] = {}
-    shimmer_frames = int(fps * 0.5)
+    fastest: dict[int, tuple[str, int]] = {}   # m → (player, keyframe_count)
+    reached: dict[str, set[int]] = {}          # player → set of passed milestones
 
     # Track previous ranks for whoosh detection.
     prev_ranks: dict[str, float] = {}
@@ -370,36 +360,26 @@ def populate_leader_overlays(
             for m in milestones:
                 if m not in player_reached and b.value >= m:
                     player_reached.add(m)
-                    # Shimmer on the bar.
-                    shimmer_countdowns[b.player] = shimmer_frames
                     sound_events.append(SoundEvent(frame=i, kind="ding"))
-                    # Check if fastest.
                     if m not in fastest:
                         fastest[m] = (b.player, n_steps)
-                    else:
-                        prev_player, prev_steps = fastest[m]
-                        if n_steps < prev_steps:
-                            fastest[m] = (b.player, n_steps)
-                            milestone_alert_countdown = milestone_alert_frames
-                            milestone_alert_text = (
-                                f"FASTEST TO {m:,} \u2014 {b.player} ({f.date_label})"
-                            )
+                    elif n_steps < fastest[m][1]:
+                        fastest[m] = (b.player, n_steps)
 
-        # Apply shimmer.
-        for b in f.bars:
-            cd = shimmer_countdowns.get(b.player, 0)
-            if cd > 0:
-                b.milestone_flash = cd / shimmer_frames
-                shimmer_countdowns[b.player] = cd - 1
-            else:
-                b.milestone_flash = 0.0
+        # Build milestone records column (most recent milestones first).
+        if fastest:
+            records: list[str] = []
+            for m in sorted(fastest, reverse=True):
+                player, steps = fastest[m]
+                records.append(f"{m:,}: {player} ({steps} seasons)")
+            f.milestone_records = records[:3]
 
-        # Milestone callout progress.
-        if milestone_alert_countdown > 0:
-            t = 1.0 - (milestone_alert_countdown / milestone_alert_frames)
-            f.milestone_text = milestone_alert_text
-            f.milestone_alert_t = t
-            milestone_alert_countdown -= 1
+        # Build tenure leaderboard column (top 3 by tenure).
+        if tenure_counts:
+            top_tenure = sorted(tenure_counts.items(), key=lambda x: -x[1])[:3]
+            f.tenure_leaders = [
+                f"{p}: {t} years" for p, t in top_tenure
+            ]
 
         # Determine current leader.
         leader = ""

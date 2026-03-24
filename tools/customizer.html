@@ -323,8 +323,9 @@ a { color:var(--accent2); }
     <div class="section">
       <div class="section-title">Overlays</div>
       <label class="toggle"><input type="checkbox" id="showGapAlerts" checked onchange="update()"> Gap Alerts</label>
-      <label class="toggle"><input type="checkbox" id="showTenureCounter" checked onchange="update()"> Years in Top N</label>
-      <label class="toggle"><input type="checkbox" id="showMilestones" checked onchange="update()"> Milestone Callouts</label>
+      <label class="toggle"><input type="checkbox" id="showReignHistory" checked onchange="update()"> Recent #1s</label>
+      <label class="toggle"><input type="checkbox" id="showTenureLeaderboard" checked onchange="update()"> Years in Top N</label>
+      <label class="toggle"><input type="checkbox" id="showMilestoneRecords" checked onchange="update()"> Milestone Records</label>
       <label class="toggle"><input type="checkbox" id="addSoundEffects" onchange="update()"> Sound Effects</label>
     </div>
 
@@ -463,8 +464,9 @@ function collectOverrides() {
     branding_text: getVal('brandingText') || '',
     branding_color: getVal('brandingColorText') || '#ff0000',
     show_gap_alerts: getCheck('showGapAlerts'),
-    show_tenure_counter: getCheck('showTenureCounter'),
-    show_milestones: getCheck('showMilestones'),
+    show_reign_history: getCheck('showReignHistory'),
+    show_tenure_leaderboard: getCheck('showTenureLeaderboard'),
+    show_milestone_records: getCheck('showMilestoneRecords'),
     add_sound_effects: getCheck('addSoundEffects'),
   };
 }
