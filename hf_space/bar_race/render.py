@@ -1300,14 +1300,13 @@ class FrameRenderer:
                           fill=(*accent_c, 200), font=self.font_watermark,
                           anchor="rb")
 
-        # --- bottom panel: three columns of stats -------------------------
+        # --- bottom panel: three columns in left 70% of width ---------------
         panel_y = self._bar_area_bottom + 8
         line_h = max(13, int(self.H * 0.016))
-        # Ensure panel doesn't overlap the date.
-        max_panel_bottom = getattr(self, '_date_top', self.H - 80) - 10
         header_c = (*text_c, 178)    # 70% opacity
         row_c = (*text2_c, 115)      # 45% opacity
-        col_w = (self.W - self._margin_right * 2 - 20) // 3
+        panel_w = int(self.W * 0.68)  # columns use left 68%
+        col_w = panel_w // 3
 
         # LEFT: Recent #1s.
         if self.cfg.show_reign_history and state.reign_history:

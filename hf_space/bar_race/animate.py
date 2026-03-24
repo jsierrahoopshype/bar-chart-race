@@ -344,33 +344,35 @@ def populate_leader_overlays(
             all_players_seen.add(b.player)
         f.players_seen = len(all_players_seen)
 
-        # Tenure: increment when date label changes (= new keyframe).
-        if f.date_label != prev_date_label:
+        # Tenure + milestones: only update at keyframe boundaries.
+        is_new_keyframe = (f.date_label != prev_date_label)
+        if is_new_keyframe:
             n_steps += 1
             for b in f.bars:
                 tenure_counts[b.player] = tenure_counts.get(b.player, 0) + 1
                 # Track first appearance.
                 if b.player not in first_appearance:
                     first_appearance[b.player] = n_steps
+
+            # Milestones: check at keyframe boundaries only.
+            for b in f.bars:
+                player_reached = reached.setdefault(b.player, set())
+                for m in milestones:
+                    if m not in player_reached and b.value >= m:
+                        player_reached.add(m)
+                        sound_events.append(SoundEvent(frame=i, kind="ding"))
+                        fa = first_appearance.get(b.player, n_steps)
+                        career = n_steps - fa + 1  # inclusive count
+                        if m not in fastest:
+                            fastest[m] = (b.player, career)
+                        elif career < fastest[m][1]:
+                            fastest[m] = (b.player, career)
+
             prev_date_label = f.date_label
 
         # Apply tenure to bars.
         for b in f.bars:
             b.tenure = tenure_counts.get(b.player, 0)
-
-        # Milestones: check each bar for crossing a threshold.
-        for b in f.bars:
-            player_reached = reached.setdefault(b.player, set())
-            for m in milestones:
-                if m not in player_reached and b.value >= m:
-                    player_reached.add(m)
-                    sound_events.append(SoundEvent(frame=i, kind="ding"))
-                    # Career seasons = current step - first appearance step (min 1).
-                    career = max(1, n_steps - first_appearance.get(b.player, n_steps))
-                    if m not in fastest:
-                        fastest[m] = (b.player, career)
-                    elif career < fastest[m][1]:
-                        fastest[m] = (b.player, career)
 
         # Build milestone records column (most recent milestones first).
         if fastest:

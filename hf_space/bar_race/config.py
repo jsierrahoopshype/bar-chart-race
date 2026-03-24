@@ -52,7 +52,7 @@ NBA_TEAM_COLORS: dict[str, str] = {
     "HOU": "#CE1141",
     "IND": "#002D62",
     "LAC": "#C8102E",
-    "LAL": "#552583",
+    "LAL": "#FDB927",
     "MEM": "#5D76A9",
     "MIA": "#98002E",
     "MIL": "#00471B",
