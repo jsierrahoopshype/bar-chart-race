@@ -828,6 +828,7 @@ class FrameRenderer:
         self.font_value = _load_font(regular_path, max(10, int(20 * scale)))
         self.font_date = _load_font(bold_path, max(14, int(72 * scale)))
         self.font_watermark = _load_font(light_path, max(10, int(18 * scale)))
+        self.font_panel = _load_font(light_path, max(8, int(14 * scale)))
         self.font_rank = _load_font(bold_path, max(10, int(20 * scale)))
         self.font_rank_giant = _load_font(bold_path, max(20, int(90 * scale)))
         self.font_branding = _load_font(bold_path, max(8, int(14 * scale)))
@@ -1219,19 +1220,16 @@ class FrameRenderer:
                 draw.text((val_x, val_y), val_text,
                           fill=val_color, font=self.font_value)
 
-        # --- date label (always bottom-right, below everything) -----------
+        # --- date label (bottom-right, at 90% height) -----------------------
         date_c = _hex_to_rgb(th.date_color)
         date_alpha = int(255 * th.date_opacity)
         date_xy = (self.W - self._margin_right - 10,
-                   self.H - int(self.H * 0.04))
+                   int(self.H * 0.93))
         draw.text(
             date_xy, state.date_label,
             fill=(*date_c, date_alpha),
-            font=self.font_date, anchor="rb",
+            font=self.font_date, anchor="rt",
         )
-        # Compute date top edge so stats can stay above it.
-        _date_h = _text_size(draw, state.date_label, self.font_date)[1]
-        self._date_top = int(self.H - self.H * 0.04) - _date_h
 
         # --- title + subtitle --------------------------------------------
         title_c = _hex_to_rgb(th.title_color)
@@ -1300,12 +1298,13 @@ class FrameRenderer:
                           fill=(*accent_c, 200), font=self.font_watermark,
                           anchor="rb")
 
-        # --- bottom panel: three columns in left 70% of width ---------------
-        panel_y = self._bar_area_bottom + 8
-        line_h = max(13, int(self.H * 0.016))
-        header_c = (*text_c, 178)    # 70% opacity
-        row_c = (*text2_c, 115)      # 45% opacity
-        panel_w = int(self.W * 0.68)  # columns use left 68%
+        # --- bottom panel: three columns, ends at 75% height ----------------
+        panel_y = self._bar_area_bottom + 6
+        panel_max_y = int(self.H * 0.85)  # hard stop well above date
+        line_h = max(12, int(self.H * 0.014))
+        header_c = (*text_c, 178)
+        row_c = (*text2_c, 110)
+        panel_w = int(self.W * 0.68)
         col_w = panel_w // 3
 
         # LEFT: Recent #1s.
@@ -1313,11 +1312,13 @@ class FrameRenderer:
             cx = self._margin_right + 10
             cy = panel_y
             draw.text((cx, cy), "RECENT #1s", fill=header_c,
-                      font=self.font_watermark)
+                      font=self.font_panel)
             cy += line_h
             for entry in state.reign_history[:3]:
+                if cy + line_h > panel_max_y:
+                    break
                 draw.text((cx, cy), entry, fill=row_c,
-                          font=self.font_watermark)
+                          font=self.font_panel)
                 cy += line_h
 
         # CENTER: Most years in top N.
@@ -1325,23 +1326,27 @@ class FrameRenderer:
             cx = self._margin_right + 10 + col_w
             cy = panel_y
             draw.text((cx, cy), "MOST YEARS IN TOP 10", fill=header_c,
-                      font=self.font_watermark)
+                      font=self.font_panel)
             cy += line_h
             for entry in state.tenure_leaders[:3]:
+                if cy + line_h > panel_max_y:
+                    break
                 draw.text((cx, cy), entry, fill=row_c,
-                          font=self.font_watermark)
+                          font=self.font_panel)
                 cy += line_h
 
-        # RIGHT-CENTER: Fastest to milestones.
+        # RIGHT: First to milestones.
         if self.cfg.show_milestone_records and state.milestone_records:
             cx = self._margin_right + 10 + col_w * 2
             cy = panel_y
-            draw.text((cx, cy), "FASTEST TO", fill=header_c,
-                      font=self.font_watermark)
+            draw.text((cx, cy), "FIRST TO", fill=header_c,
+                      font=self.font_panel)
             cy += line_h
             for entry in state.milestone_records[:3]:
+                if cy + line_h > panel_max_y:
+                    break
                 draw.text((cx, cy), entry, fill=row_c,
-                          font=self.font_watermark)
+                          font=self.font_panel)
                 cy += line_h
 
         # Player counter — below subtitle in top-left.

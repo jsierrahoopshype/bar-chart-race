@@ -292,8 +292,24 @@ class ReignPeriod:
     end_label: str = ""
 
 
+def _abbrev(name: str, max_len: int = 18) -> str:
+    """Abbreviate long names: 'Kareem Abdul-Jabbar' → 'K. Abdul-Jabbar'."""
+    if len(name) <= max_len:
+        return name
+    parts = name.split()
+    if len(parts) >= 2:
+        short = f"{parts[0][0]}. {' '.join(parts[1:])}"
+        if len(short) <= max_len + 2:
+            return short
+        return short[:max_len] + "…"
+    return name[:max_len] + "…"
+
+
 def _detect_milestones(max_val: float) -> list[int]:
     """Choose milestone thresholds based on data scale."""
+    if max_val < 2_000:
+        return [100, 200, 300, 400, 500, 600, 700, 800, 900,
+                1_000, 1_100, 1_200, 1_300, 1_400, 1_500, 1_600]
     if max_val < 10_000:
         return [500, 1_000, 2_000, 3_000, 5_000, 7_500]
     return [5_000, 10_000, 15_000, 20_000, 25_000, 30_000, 35_000, 40_000]
@@ -331,7 +347,8 @@ def populate_leader_overlays(
     # Milestones: track fastest player to each milestone.
     max_val = max((b.value for f in frames for b in f.bars), default=0)
     milestones = _detect_milestones(max_val)
-    fastest: dict[int, tuple[str, int]] = {}   # m → (player, career_seasons)
+    # "First to" milestones: first player ever to cross each threshold.
+    first_to: dict[int, tuple[str, str]] = {}  # m → (player, date_label)
     reached: dict[str, set[int]] = {}          # player → set of passed milestones
     first_appearance: dict[str, int] = {}      # player → keyframe index of first appearance
 
@@ -361,12 +378,9 @@ def populate_leader_overlays(
                     if m not in player_reached and b.value >= m:
                         player_reached.add(m)
                         sound_events.append(SoundEvent(frame=i, kind="ding"))
-                        fa = first_appearance.get(b.player, n_steps)
-                        career = n_steps - fa + 1  # inclusive count
-                        if m not in fastest:
-                            fastest[m] = (b.player, career)
-                        elif career < fastest[m][1]:
-                            fastest[m] = (b.player, career)
+                        # Record the first player ever to reach this milestone.
+                        if m not in first_to:
+                            first_to[m] = (b.player, f.date_label)
 
             prev_date_label = f.date_label
 
@@ -375,18 +389,18 @@ def populate_leader_overlays(
             b.tenure = tenure_counts.get(b.player, 0)
 
         # Build milestone records column (most recent milestones first).
-        if fastest:
+        if first_to:
             records: list[str] = []
-            for m in sorted(fastest, reverse=True):
-                player, steps = fastest[m]
-                records.append(f"{m:,}: {player} ({steps} seasons)")
+            for m in sorted(first_to, reverse=True):
+                player, when = first_to[m]
+                records.append(f"{m:,}: {_abbrev(player)} ({when})")
             f.milestone_records = records[:3]
 
         # Build tenure leaderboard column (top 3 by tenure).
         if tenure_counts:
             top_tenure = sorted(tenure_counts.items(), key=lambda x: -x[1])[:3]
             f.tenure_leaders = [
-                f"{p}: {t} years" for p, t in top_tenure
+                f"{_abbrev(p)}: {t} yrs" for p, t in top_tenure
             ]
 
         # Determine current leader.
@@ -422,12 +436,12 @@ def populate_leader_overlays(
         prev_ranks = {b.player: b.rank for b in f.bars}
         prev_leader = leader
 
-        # Reign history log.
+        # Reign history log (abbreviated names).
         if reigns:
             history: list[str] = []
             for r in reversed(reigns[-4:]):
                 end = r.end_label if r.end_label else f.date_label
-                history.append(f"{r.player} ({r.start_label}\u2014{end})")
+                history.append(f"{_abbrev(r.player)} ({r.start_label}\u2014{end})")
             f.reign_history = history
 
         # Gap percentage.
