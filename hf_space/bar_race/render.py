@@ -22,6 +22,7 @@ from bar_race.config import (
     NBA_TEAM_COLORS,
     VideoPreset,
 )
+from bar_race.player_teams import PLAYER_TEAM_MAP
 from bar_race.themes import Theme, get_theme
 
 # ---------------------------------------------------------------------------
@@ -66,9 +67,17 @@ def _color_for_bar(bar: BarState, use_team: bool) -> str:
     if bar.player in _player_color_cache:
         return _player_color_cache[bar.player]
 
+    color = None
+    # 1. Use team from data if available.
     if use_team and bar.team and bar.team in NBA_TEAM_COLORS:
         color = NBA_TEAM_COLORS[bar.team]
-    else:
+    # 2. Fall back to iconic team map.
+    if color is None and bar.player in PLAYER_TEAM_MAP:
+        team = PLAYER_TEAM_MAP[bar.player]
+        if team in NBA_TEAM_COLORS:
+            color = NBA_TEAM_COLORS[team]
+    # 3. Fall back to palette cycling.
+    if color is None:
         color = FALLBACK_PALETTE[_palette_idx % len(FALLBACK_PALETTE)]
         _palette_idx += 1
 
@@ -1210,23 +1219,19 @@ class FrameRenderer:
                 draw.text((val_x, val_y), val_text,
                           fill=val_color, font=self.font_value)
 
-        # --- date label ---------------------------------------------------
+        # --- date label (always bottom-right, below everything) -----------
         date_c = _hex_to_rgb(th.date_color)
         date_alpha = int(255 * th.date_opacity)
-        if th.date_position == "top-right":
-            date_xy = (self.W - self._margin_right - 10, int(self.H * 0.05))
-            date_anchor = "rt"
-        elif th.date_position == "bottom-center":
-            date_xy = (self.W // 2, self._bar_area_bottom + 20)
-            date_anchor = "mt"
-        else:
-            date_xy = (self.W - self._margin_right - 10, self._bar_area_bottom + 20)
-            date_anchor = "rt"
+        date_xy = (self.W - self._margin_right - 10,
+                   self.H - int(self.H * 0.04))
         draw.text(
             date_xy, state.date_label,
             fill=(*date_c, date_alpha),
-            font=self.font_date, anchor=date_anchor,
+            font=self.font_date, anchor="rb",
         )
+        # Compute date top edge so stats can stay above it.
+        _date_h = _text_size(draw, state.date_label, self.font_date)[1]
+        self._date_top = int(self.H - self.H * 0.04) - _date_h
 
         # --- title + subtitle --------------------------------------------
         title_c = _hex_to_rgb(th.title_color)
@@ -1296,8 +1301,10 @@ class FrameRenderer:
                           anchor="rb")
 
         # --- bottom panel: three columns of stats -------------------------
-        panel_y = self._bar_area_bottom + 6
+        panel_y = self._bar_area_bottom + 8
         line_h = max(13, int(self.H * 0.016))
+        # Ensure panel doesn't overlap the date.
+        max_panel_bottom = getattr(self, '_date_top', self.H - 80) - 10
         header_c = (*text_c, 178)    # 70% opacity
         row_c = (*text2_c, 115)      # 45% opacity
         col_w = (self.W - self._margin_right * 2 - 20) // 3

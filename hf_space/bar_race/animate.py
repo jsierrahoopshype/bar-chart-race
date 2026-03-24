@@ -331,8 +331,9 @@ def populate_leader_overlays(
     # Milestones: track fastest player to each milestone.
     max_val = max((b.value for f in frames for b in f.bars), default=0)
     milestones = _detect_milestones(max_val)
-    fastest: dict[int, tuple[str, int]] = {}   # m → (player, keyframe_count)
+    fastest: dict[int, tuple[str, int]] = {}   # m → (player, career_seasons)
     reached: dict[str, set[int]] = {}          # player → set of passed milestones
+    first_appearance: dict[str, int] = {}      # player → keyframe index of first appearance
 
     # Track previous ranks for whoosh detection.
     prev_ranks: dict[str, float] = {}
@@ -348,6 +349,9 @@ def populate_leader_overlays(
             n_steps += 1
             for b in f.bars:
                 tenure_counts[b.player] = tenure_counts.get(b.player, 0) + 1
+                # Track first appearance.
+                if b.player not in first_appearance:
+                    first_appearance[b.player] = n_steps
             prev_date_label = f.date_label
 
         # Apply tenure to bars.
@@ -361,10 +365,12 @@ def populate_leader_overlays(
                 if m not in player_reached and b.value >= m:
                     player_reached.add(m)
                     sound_events.append(SoundEvent(frame=i, kind="ding"))
+                    # Career seasons = current step - first appearance step (min 1).
+                    career = max(1, n_steps - first_appearance.get(b.player, n_steps))
                     if m not in fastest:
-                        fastest[m] = (b.player, n_steps)
-                    elif n_steps < fastest[m][1]:
-                        fastest[m] = (b.player, n_steps)
+                        fastest[m] = (b.player, career)
+                    elif career < fastest[m][1]:
+                        fastest[m] = (b.player, career)
 
         # Build milestone records column (most recent milestones first).
         if fastest:
