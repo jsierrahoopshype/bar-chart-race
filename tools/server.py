@@ -85,6 +85,14 @@ def _run_pipeline(job_id: str, cfg: Config, input_path: str, temp_theme_slug: st
             frames = frames + _hold_frames(frames[-1], outro_count)
 
         total = len(frames)
+        # Verify overlay data survives into outro hold frames.
+        if outro_count and len(frames) > outro_count:
+            last_outro = frames[-1]
+            sys.stderr.write(
+                f"  Outro hold: {outro_count} frames, "
+                f"reign_history={len(last_outro.reign_history)} entries, "
+                f"players_seen={last_outro.players_seen}\n"
+            )
         q.put({"event": "status", "data": f"Rendering {total} frames..."})
         renderer = FrameRenderer(cfg)
         preset = cfg.get_preset()
