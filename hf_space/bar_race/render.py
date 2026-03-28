@@ -248,14 +248,20 @@ def _load_bg_image(path: str, width: int, height: int) -> Image.Image:
     return img.crop((left, top, left + width, top + height))
 
 
+def _resolve_asset_path(relative: str) -> Path:
+    """Resolve an asset path relative to the project root."""
+    p = Path(relative)
+    if p.is_absolute():
+        return p
+    pkg_root = Path(__file__).resolve().parent.parent.parent
+    return pkg_root / p
+
+
 def _build_background(theme: Theme, width: int, height: int) -> Image.Image:
     # If a background image is set, use it instead of gradient.
     if theme.bg_image:
-        bg_path = Path(theme.bg_image)
-        if not bg_path.is_absolute():
-            # Resolve relative to package root (two levels up from this file).
-            pkg_root = Path(__file__).resolve().parent.parent.parent
-            bg_path = pkg_root / bg_path
+        bg_path = _resolve_asset_path(theme.bg_image)
+        print(f"[render] bg_image resolved: {bg_path}  exists={bg_path.is_file()}")
         if bg_path.is_file():
             return _load_bg_image(str(bg_path), width, height)
 
@@ -841,10 +847,7 @@ class FrameRenderer:
 
         # Custom font directory: map weights to specific font files.
         if th.font_custom_dir:
-            custom_dir = Path(th.font_custom_dir)
-            if not custom_dir.is_absolute():
-                pkg_root = Path(__file__).resolve().parent.parent.parent
-                custom_dir = pkg_root / custom_dir
+            custom_dir = _resolve_asset_path(th.font_custom_dir)
             _custom_map = {
                 "bold": "Futura_Today_Bold.otf",
                 "medium": "Futura_Today_DemiBold.otf",
@@ -878,12 +881,14 @@ class FrameRenderer:
             regular_path = _resolve_font(family, "regular")
             light_path = _resolve_font(family, "light")
 
-        self.font_title = _load_font(bold_path, max(12, int(44 * scale)))
+        title_scale = th.title_scale
+        date_scale = th.date_scale
+        self.font_title = _load_font(bold_path, max(12, int(44 * scale * title_scale)))
         self.font_subtitle = _load_font(medium_path, max(10, int(26 * scale)))
         self.font_name = _load_font(medium_path, max(10, int(24 * scale)))
         self.font_tenure = _load_font(regular_path, max(8, int(17 * scale)))
         self.font_value = _load_font(regular_path, max(10, int(20 * scale)))
-        self.font_date = _load_font(bold_path, max(14, int(72 * scale)))
+        self.font_date = _load_font(bold_path, max(14, int(72 * scale * date_scale)))
         self.font_watermark = _load_font(light_path, max(10, int(18 * scale)))
         self.font_panel = _load_font(light_path, max(8, int(14 * scale)))
         self.font_rank = _load_font(bold_path, max(10, int(20 * scale)))
@@ -905,6 +910,20 @@ class FrameRenderer:
             _draw_diagonal_slash(bg_draw, self.W, self.H, th)
         if th.border_frame not in ("none", "top-bottom"):
             _draw_border_frame(bg_draw, self.W, self.H, th)
+
+        # Preload logo image if specified.
+        self._logo: Optional[Image.Image] = None
+        if th.logo_path:
+            logo_file = _resolve_asset_path(th.logo_path)
+            if logo_file.is_file():
+                try:
+                    logo = Image.open(str(logo_file)).convert("RGBA")
+                    # Scale logo to match title text height (~80px at 1080).
+                    logo_h = max(20, int(80 * scale * title_scale))
+                    logo_w = int(logo.width * logo_h / logo.height)
+                    self._logo = logo.resize((logo_w, logo_h), Image.LANCZOS)
+                except Exception:
+                    pass
 
         # Layout constants
         if th.label_position == "inside":
@@ -1300,16 +1319,24 @@ class FrameRenderer:
             title_x = self._margin_right + 10
             title_anchor = "lt"
 
+        # Draw logo left of title if available.
+        logo_offset = 0
+        if self._logo is not None and title_anchor == "lt":
+            logo_y = int(self.H * 0.04)
+            img.paste(self._logo, (title_x, logo_y), self._logo)
+            logo_offset = self._logo.width + 10
+            draw = ImageDraw.Draw(img)
+
         if self.cfg.title:
             draw.text(
-                (title_x, int(self.H * 0.04)),
+                (title_x + logo_offset, int(self.H * 0.04)),
                 self.cfg.title,
                 fill=(*title_c, 240),
                 font=self.font_title, anchor=title_anchor,
             )
         if self.cfg.subtitle:
             draw.text(
-                (title_x, int(self.H * 0.04 + 52 * (self.H / 1080))),
+                (title_x + logo_offset, int(self.H * 0.04 + 52 * (self.H / 1080) * th.title_scale)),
                 self.cfg.subtitle,
                 fill=(*text2_c, 200),
                 font=self.font_subtitle, anchor=title_anchor,
@@ -1410,7 +1437,7 @@ class FrameRenderer:
                 cy += line_h
 
         # Player counter — below subtitle in top-left.
-        if state.players_seen > 0:
+        if state.players_seen > 0 and th.show_player_counter:
             counter_text = f"Players tracked: {state.players_seen}"
             cx = self._margin_right + 10
             cy = int(self.H * 0.04 + 80 * (self.H / 1080))

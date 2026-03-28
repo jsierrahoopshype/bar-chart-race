@@ -72,6 +72,9 @@ class Theme:
     # Title area
     title_color: str = "#ffffff"
     title_position: str = "top-left"
+    title_scale: float = 1.0  # multiplier for title font size
+    logo_path: str = ""  # path to logo image shown left of title
+    show_player_counter: bool = True  # show "Players tracked: N" below subtitle
     show_branding_tag: bool = False
     branding_text: str = ""
     branding_color: str = "#ff0000"
@@ -97,6 +100,7 @@ class Theme:
 
     # Date formatting
     date_uppercase: bool = False  # uppercase month abbreviation (JAN vs Jan)
+    date_scale: float = 1.0  # multiplier for date font size
 
 
 # ---------------------------------------------------------------------------
@@ -974,8 +978,12 @@ _register(
        value_suffix="",
        title_color="#ffffff",
        title_position="top-left",
+       title_scale=1.2,
+       logo_path="assets/logos/NBA_logo.png",
+       show_player_counter=False,
        date_color="#ffffff", date_opacity=0.9,
        date_uppercase=True,
+       date_scale=1.15,
        headshot_shape="rounded", headshot_style="rectangle",
        headshot_border=False,
        headshot_position="in-bar",
