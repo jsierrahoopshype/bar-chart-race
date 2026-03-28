@@ -89,6 +89,15 @@ class Theme:
     noise: bool = True
     bar_shadow: bool = True
 
+    # Background image (optional — overrides gradient when set)
+    bg_image: str = ""  # path to background image file
+
+    # Custom font directory (optional — overrides font_family when set)
+    font_custom_dir: str = ""  # directory containing custom .otf/.ttf files
+
+    # Date formatting
+    date_uppercase: bool = False  # uppercase month abbreviation (JAN vs Jan)
+
 
 # ---------------------------------------------------------------------------
 # Theme definitions
@@ -942,6 +951,39 @@ _register(
        show_branding_tag=True, branding_text="HOOPSHYPE", branding_color="#ff6b35",
        show_grid_lines=True,
        border_frame="left-accent",
+       vignette=False, noise=False, bar_shadow=False),
+
+    # 51
+    _t("hoopshype-official", "HoopsHype Official",
+       "Premium broadcast look. Dark carbon fiber mesh background with Futura Today font.",
+       bg_type="solid", bg_colors=["#1a1a1a"],
+       bg_image="assets/backgrounds/mesh3.jpg",
+       font_family="sans",
+       font_custom_dir="assets/fonts",
+       accent_color="#ffffff", accent_secondary="#888888",
+       bar_radius=6, bar_opacity=1.0,
+       bar_border=True, bar_border_width=1,
+       bar_gradient=False, bar_team_stripe=False,
+       show_highlight_strip=True, show_shadow_strip=False,
+       leader_glow=False, leader_outline=False,
+       leader_underline=False, leader_bg_highlight=False,
+       show_rank_numbers=False, rank_giant_watermark=False,
+       text_color="#ffffff", text_secondary_color="#cccccc",
+       label_case="normal",
+       label_position="inside",
+       value_suffix="",
+       title_color="#ffffff",
+       title_position="top-left",
+       date_color="#ffffff", date_opacity=0.9,
+       date_uppercase=True,
+       headshot_shape="rounded", headshot_style="rectangle",
+       headshot_border=False,
+       headshot_position="in-bar",
+       show_branding_tag=False,
+       show_accent_line=False, show_diagonal_slash=False,
+       show_court_lines=False,
+       show_background_circle=False, show_grid_lines=False,
+       border_frame="none",
        vignette=False, noise=False, bar_shadow=False),
 )
 

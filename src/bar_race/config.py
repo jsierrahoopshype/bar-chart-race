@@ -159,7 +159,7 @@ class Config:
     watermark: str = ""
 
     # --- theme -------------------------------------------------------------
-    theme: str = "midnight-premium"
+    theme: str = "hoopshype-official"
 
     # --- visual tweaks -----------------------------------------------------
     bg_gradient: tuple[str, str] = ("#0f0c29", "#302b63")

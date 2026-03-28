@@ -365,7 +365,7 @@ a { color:var(--accent2); }
     <div class="output-bar">
       <h3>CLI Command</h3>
       <div class="cmd-box" id="cmdBox">
-        <span id="cmdText">python -m bar_race --input data.xlsx --output race.mp4 --theme midnight-premium --preset youtube</span>
+        <span id="cmdText">python -m bar_race --input data.xlsx --output race.mp4 --theme hoopshype-official --preset youtube</span>
         <button class="copy-btn" onclick="copyCmd()">Copy</button>
       </div>
       <div class="btn-row">
@@ -394,7 +394,7 @@ const SAMPLE_BARS = [
 ];
 
 let themes = [];
-let currentTheme = 'midnight-premium';
+let currentTheme = 'hoopshype-official';
 let uploadedFile = null;
 
 // ---------------------------------------------------------------------------
@@ -511,7 +511,7 @@ function deleteCustomTheme(slug) {
   localStorage.setItem('customThemes', JSON.stringify(customs));
   themes = themes.filter(t => t.slug !== slug);
   if (currentTheme === slug) {
-    currentTheme = themes[0]?.slug || 'midnight-premium';
+    currentTheme = themes[0]?.slug || 'hoopshype-official';
     applyTheme(currentTheme);
   }
   renderThemeGrid();

@@ -233,7 +233,32 @@ def _render_split_bg(
     return img
 
 
+def _load_bg_image(path: str, width: int, height: int) -> Image.Image:
+    """Load a background image, resize to cover the target dimensions."""
+    img = Image.open(path).convert("RGBA")
+    # Cover: scale so smallest dimension fills, then center-crop.
+    src_w, src_h = img.size
+    scale = max(width / src_w, height / src_h)
+    new_w = int(src_w * scale)
+    new_h = int(src_h * scale)
+    img = img.resize((new_w, new_h), Image.LANCZOS)
+    # Center crop.
+    left = (new_w - width) // 2
+    top = (new_h - height) // 2
+    return img.crop((left, top, left + width, top + height))
+
+
 def _build_background(theme: Theme, width: int, height: int) -> Image.Image:
+    # If a background image is set, use it instead of gradient.
+    if theme.bg_image:
+        bg_path = Path(theme.bg_image)
+        if not bg_path.is_absolute():
+            # Resolve relative to package root (two levels up from this file).
+            pkg_root = Path(__file__).resolve().parent.parent.parent
+            bg_path = pkg_root / bg_path
+        if bg_path.is_file():
+            return _load_bg_image(str(bg_path), width, height)
+
     colors = [_hex_to_rgb(c) for c in theme.bg_colors]
     c1 = colors[0]
     c2 = colors[1] if len(colors) > 1 else c1
@@ -814,8 +839,40 @@ class FrameRenderer:
         regular_path = cfg.font_regular
         light_path = cfg.font_light
 
+        # Custom font directory: map weights to specific font files.
+        if th.font_custom_dir:
+            custom_dir = Path(th.font_custom_dir)
+            if not custom_dir.is_absolute():
+                pkg_root = Path(__file__).resolve().parent.parent.parent
+                custom_dir = pkg_root / custom_dir
+            _custom_map = {
+                "bold": "Futura_Today_Bold.otf",
+                "medium": "Futura_Today_DemiBold.otf",
+                "regular": "Futura_Today_Normal.otf",
+                "light": "Futura_Today_Light.otf",
+            }
+            all_found = True
+            for weight, filename in _custom_map.items():
+                candidate = custom_dir / filename
+                if candidate.is_file():
+                    if weight == "bold":
+                        bold_path = str(candidate)
+                    elif weight == "medium":
+                        medium_path = str(candidate)
+                    elif weight == "regular":
+                        regular_path = str(candidate)
+                    elif weight == "light":
+                        light_path = str(candidate)
+                else:
+                    all_found = False
+            # If not all custom fonts found, fall back to standard resolution.
+            if not all_found:
+                bold_path = cfg.font_bold
+                medium_path = cfg.font_medium
+                regular_path = cfg.font_regular
+                light_path = cfg.font_light
         # Override with font_family if config used defaults (auto-resolved).
-        if family != "sans":
+        elif family != "sans":
             bold_path = _resolve_font(family, "bold")
             medium_path = _resolve_font(family, "medium")
             regular_path = _resolve_font(family, "regular")
@@ -835,7 +892,7 @@ class FrameRenderer:
 
         # Precompute background.
         self._bg = _build_background(th, self.W, self.H)
-        if th.vignette:
+        if th.vignette and not th.bg_image:
             self._bg = _apply_vignette(self._bg)
 
         # Draw static decorative elements on background.
@@ -1225,8 +1282,11 @@ class FrameRenderer:
         date_alpha = int(255 * th.date_opacity)
         date_xy = (self.W - self._margin_right - 10,
                    int(self.H * 0.93))
+        date_text = state.date_label
+        if th.date_uppercase:
+            date_text = date_text.upper()
         draw.text(
-            date_xy, state.date_label,
+            date_xy, date_text,
             fill=(*date_c, date_alpha),
             font=self.font_date, anchor="rt",
         )
