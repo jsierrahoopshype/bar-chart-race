@@ -15,6 +15,7 @@ Supports three input shapes:
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Optional
 
 import numpy as np
@@ -62,11 +63,32 @@ def _extract_numeric_label(s: str) -> Optional[str]:
     return m[-1] if m else None
 
 
+def _try_parse_date_col(col: str) -> bool:
+    """Return True if *col* looks like a month-day name (e.g. "October 21")."""
+    s = str(col).strip()
+    for fmt in ("%B %d", "%b %d"):
+        try:
+            datetime.strptime(s, fmt)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _has_date_name_columns(cols: list[str]) -> bool:
+    """Return True if ≥80 % of *cols* parse as "Month Day" strings."""
+    if not cols:
+        return False
+    hits = sum(1 for c in cols if _try_parse_date_col(c))
+    return hits >= len(cols) * 0.8
+
+
 def _is_transposed_wide(df: pd.DataFrame) -> bool:
     """Detect transposed wide format (players as rows, time periods as cols).
 
     Heuristic: the first column contains strings (player names) and ≥80 % of
-    the remaining column headers contain an extractable number.
+    the remaining column headers contain an extractable number **or** parse
+    as "Month Day" date names (e.g. "October 21", "Jan 5").
     """
     cols = list(df.columns)
     if len(cols) < 3:
@@ -82,6 +104,12 @@ def _is_transposed_wide(df: pd.DataFrame) -> bool:
         return False
 
     other_cols = cols[1:]
+
+    # Check for date-name columns ("October 21", "Nov 5").
+    if _has_date_name_columns(other_cols):
+        return True
+
+    # Existing check: numeric column headers.
     numeric_count = sum(
         1 for c in other_cols if _extract_numeric_label(c) is not None
     )
@@ -168,10 +196,17 @@ def _normalize_transposed_wide(df: pd.DataFrame) -> pd.DataFrame:
     timestamps for pipeline compatibility, and stores a label map in
     ``df.attrs["date_label_map"]`` so that downstream code can display
     original labels (e.g. ``"18"`` instead of ``"Jan 01, 2018"``).
+
+    Also supports date-name columns like "October 21", "January 5" where
+    the column header itself is used as the display label.
     """
     cols = list(df.columns)
     player_col = cols[0]
     time_cols = cols[1:]
+
+    # Branch: date-name columns ("October 21", "Nov 5").
+    if _has_date_name_columns(time_cols):
+        return _normalize_transposed_wide_date_names(df, player_col, time_cols)
 
     records: list[dict] = []
     for _, row in df.iterrows():
@@ -219,6 +254,73 @@ def _normalize_transposed_wide(df: pd.DataFrame) -> pd.DataFrame:
         label_map[row["date"]] = str(row["date_label"])
 
     out["value"] = pd.to_numeric(out["value"], errors="coerce")
+    result = out[["date", "player", "value", "team"]].copy()
+    result.attrs["date_label_map"] = label_map
+    return result
+
+
+def _normalize_transposed_wide_date_names(
+    df: pd.DataFrame,
+    player_col: str,
+    time_cols: list[str],
+) -> pd.DataFrame:
+    """Handle transposed wide where columns are "Month Day" strings.
+
+    Infers a sports-season year: Oct-Dec → 2025, Jan-Sep → 2026.
+    Column headers are preserved as display labels.
+    """
+    # Parse each column header into a (month, day) and assign a year.
+    col_dates: list[tuple[str, pd.Timestamp]] = []
+    for idx, tc in enumerate(time_cols):
+        s = str(tc).strip()
+        parsed = None
+        for fmt in ("%B %d", "%b %d"):
+            try:
+                parsed = datetime.strptime(s, fmt)
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            # Skip unparseable columns.
+            continue
+        month, day = parsed.month, parsed.day
+        # Sports season heuristic: Oct-Dec → 2025, Jan-Sep → 2026.
+        year = 2025 if month >= 10 else 2026
+        ts = pd.Timestamp(year=year, month=month, day=day)
+        col_dates.append((str(tc), ts))
+
+    if not col_dates:
+        raise ValueError("No parseable date-name columns found.")
+
+    records: list[dict] = []
+    for _, row in df.iterrows():
+        player = str(row[player_col]).strip()
+        for col_name, ts in col_dates:
+            val = row[col_name]
+            if pd.isna(val):
+                continue
+            val = float(val)
+            if val == 0:
+                continue
+            records.append({
+                "date": ts,
+                "date_label": str(col_name).strip(),
+                "player": player,
+                "value": val,
+                "team": "",
+            })
+
+    if not records:
+        raise ValueError("No non-zero data found in date-name columns.")
+
+    out = pd.DataFrame(records)
+    out["value"] = pd.to_numeric(out["value"], errors="coerce")
+
+    # Build label map: timestamp → original column header for display.
+    label_map: dict[pd.Timestamp, str] = {}
+    for col_name, ts in col_dates:
+        label_map[ts] = col_name.strip()
+
     result = out[["date", "player", "value", "team"]].copy()
     result.attrs["date_label_map"] = label_map
     return result

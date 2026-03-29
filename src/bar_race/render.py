@@ -1407,7 +1407,7 @@ class FrameRenderer:
             draw.text((cx, cy), "RECENT #1s", fill=header_c,
                       font=self.font_panel)
             cy += line_h
-            for entry in state.reign_history[:3]:
+            for entry in state.reign_history[:5]:
                 if cy + line_h > panel_max_y:
                     break
                 draw.text((cx, cy), entry, fill=row_c,
@@ -1421,7 +1421,7 @@ class FrameRenderer:
             draw.text((cx, cy), "MOST YEARS IN TOP 10", fill=header_c,
                       font=self.font_panel)
             cy += line_h
-            for entry in state.tenure_leaders[:3]:
+            for entry in state.tenure_leaders[:5]:
                 if cy + line_h > panel_max_y:
                     break
                 draw.text((cx, cy), entry, fill=row_c,
@@ -1435,7 +1435,7 @@ class FrameRenderer:
             draw.text((cx, cy), "FIRST TO", fill=header_c,
                       font=self.font_panel)
             cy += line_h
-            for entry in state.milestone_records[:3]:
+            for entry in state.milestone_records[:5]:
                 if cy + line_h > panel_max_y:
                     break
                 draw.text((cx, cy), entry, fill=row_c,
