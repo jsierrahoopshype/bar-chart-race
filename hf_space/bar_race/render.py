@@ -238,18 +238,25 @@ def _render_split_bg(
 
 
 def _load_bg_image(path: str, width: int, height: int) -> Image.Image:
-    """Load a background image, resize to cover the target dimensions."""
-    img = Image.open(path).convert("RGBA")
-    # Cover: scale so smallest dimension fills, then center-crop.
+    """Load a background image, resize to cover, center-crop to exact size.
+
+    Uses LANCZOS for quality.  Returns an unmodified RGBA image — callers
+    must NOT layer vignette, gradient, or noise on top when the source
+    image already contains those effects (e.g. mesh3.jpg).
+    """
+    img = Image.open(path).convert("RGB")
+    # Cover: scale up so the *smaller* dimension matches, then center-crop.
     src_w, src_h = img.size
     scale = max(width / src_w, height / src_h)
     new_w = int(src_w * scale)
     new_h = int(src_h * scale)
     img = img.resize((new_w, new_h), Image.LANCZOS)
-    # Center crop.
+    # Center-crop to exact target size.
     left = (new_w - width) // 2
     top = (new_h - height) // 2
-    return img.crop((left, top, left + width, top + height))
+    img = img.crop((left, top, left + width, top + height))
+    # Convert to RGBA (fully opaque) so it composites correctly.
+    return img.convert("RGBA")
 
 
 def _build_background(theme: Theme, width: int, height: int) -> Image.Image:
@@ -888,7 +895,7 @@ class FrameRenderer:
         self.font_value = _load_font(regular_path, max(10, int(20 * scale)))
         self.font_date = _load_font(bold_path, max(14, int(72 * scale)))
         self.font_watermark = _load_font(light_path, max(10, int(18 * scale)))
-        self.font_panel = _load_font(light_path, max(8, int(14 * scale)))
+        self.font_panel = _load_font(light_path, max(8, int(14 * 1.15 * scale)))
         self.font_rank = _load_font(bold_path, max(10, int(20 * scale)))
         self.font_rank_giant = _load_font(bold_path, max(20, int(90 * scale)))
         self.font_branding = _load_font(bold_path, max(8, int(14 * scale)))
