@@ -8,9 +8,13 @@ Renders each :class:`~bar_race.animate.FrameState` into a raw RGBA
 from __future__ import annotations
 
 import math
+import os
 import unicodedata
 from pathlib import Path
 from typing import Optional
+
+# Project root — two directories above this file (src/bar_race/render.py).
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -251,13 +255,12 @@ def _load_bg_image(path: str, width: int, height: int) -> Image.Image:
 def _build_background(theme: Theme, width: int, height: int) -> Image.Image:
     # If a background image is set, use it instead of gradient.
     if theme.bg_image:
-        bg_path = Path(theme.bg_image)
-        if not bg_path.is_absolute():
-            # Resolve relative to package root (two levels up from this file).
-            pkg_root = Path(__file__).resolve().parent.parent.parent
-            bg_path = pkg_root / bg_path
-        if bg_path.is_file():
-            return _load_bg_image(str(bg_path), width, height)
+        img_path = theme.bg_image
+        if not os.path.isabs(img_path):
+            img_path = os.path.join(PROJECT_ROOT, img_path)
+        print(f"[render] bg_image resolved: {img_path}  exists={os.path.exists(img_path)}")
+        if os.path.exists(img_path):
+            return _load_bg_image(img_path, width, height)
 
     colors = [_hex_to_rgb(c) for c in theme.bg_colors]
     c1 = colors[0]
@@ -841,10 +844,10 @@ class FrameRenderer:
 
         # Custom font directory: map weights to specific font files.
         if th.font_custom_dir:
-            custom_dir = Path(th.font_custom_dir)
-            if not custom_dir.is_absolute():
-                pkg_root = Path(__file__).resolve().parent.parent.parent
-                custom_dir = pkg_root / custom_dir
+            custom_dir_str = th.font_custom_dir
+            if not os.path.isabs(custom_dir_str):
+                custom_dir_str = os.path.join(PROJECT_ROOT, custom_dir_str)
+            custom_dir = Path(custom_dir_str)
             _custom_map = {
                 "bold": "Futura_Today_Bold.otf",
                 "medium": "Futura_Today_DemiBold.otf",
@@ -878,7 +881,7 @@ class FrameRenderer:
             regular_path = _resolve_font(family, "regular")
             light_path = _resolve_font(family, "light")
 
-        self.font_title = _load_font(bold_path, max(12, int(44 * scale)))
+        self.font_title = _load_font(bold_path, max(12, int(44 * scale * th.title_scale)))
         self.font_subtitle = _load_font(medium_path, max(10, int(26 * scale)))
         self.font_name = _load_font(medium_path, max(10, int(24 * scale)))
         self.font_tenure = _load_font(regular_path, max(8, int(17 * scale)))
@@ -914,6 +917,21 @@ class FrameRenderer:
         self._margin_right = int(self.W * 0.05)
         self._bar_area_top = int(self.H * 0.16)
         self._bar_area_bottom = int(self.H * 0.86)
+
+        # Preload logo image if specified.
+        self._logo: Optional[Image.Image] = None
+        if th.logo_path:
+            logo_file = th.logo_path
+            if not os.path.isabs(logo_file):
+                logo_file = os.path.join(PROJECT_ROOT, logo_file)
+            if os.path.exists(logo_file):
+                try:
+                    logo = Image.open(logo_file).convert("RGBA")
+                    logo_h = max(20, int(80 * scale * th.title_scale))
+                    logo_w = int(logo.width * logo_h / logo.height)
+                    self._logo = logo.resize((logo_w, logo_h), Image.LANCZOS)
+                except Exception:
+                    pass
 
     def _draw_rank_number(
         self, draw: ImageDraw.Draw, bar: BarState,
@@ -1300,16 +1318,24 @@ class FrameRenderer:
             title_x = self._margin_right + 10
             title_anchor = "lt"
 
+        # Draw logo to the left of title if available.
+        logo_offset = 0
+        if self._logo is not None and title_anchor == "lt":
+            logo_y = int(self.H * 0.04)
+            img.paste(self._logo, (title_x, logo_y), self._logo)
+            logo_offset = self._logo.width + 10
+            draw = ImageDraw.Draw(img)
+
         if self.cfg.title:
             draw.text(
-                (title_x, int(self.H * 0.04)),
+                (title_x + logo_offset, int(self.H * 0.04)),
                 self.cfg.title,
                 fill=(*title_c, 240),
                 font=self.font_title, anchor=title_anchor,
             )
         if self.cfg.subtitle:
             draw.text(
-                (title_x, int(self.H * 0.04 + 52 * (self.H / 1080))),
+                (title_x + logo_offset, int(self.H * 0.04 + 52 * th.title_scale * (self.H / 1080))),
                 self.cfg.subtitle,
                 fill=(*text2_c, 200),
                 font=self.font_subtitle, anchor=title_anchor,
@@ -1410,7 +1436,7 @@ class FrameRenderer:
                 cy += line_h
 
         # Player counter — below subtitle in top-left.
-        if state.players_seen > 0:
+        if state.players_seen > 0 and th.show_player_counter:
             counter_text = f"Players tracked: {state.players_seen}"
             cx = self._margin_right + 10
             cy = int(self.H * 0.04 + 80 * (self.H / 1080))
