@@ -1349,7 +1349,7 @@ class FrameRenderer:
         if self._logo is not None and title_anchor == "lt":
             logo_y = int(self.H * 0.04)
             img.paste(self._logo, (title_x, logo_y), self._logo)
-            logo_offset = self._logo.width + 10
+            logo_offset = self._logo.width + 15
             draw = ImageDraw.Draw(img)
 
         if self.cfg.title:
@@ -1417,28 +1417,28 @@ class FrameRenderer:
         header_c = (*text_c, 178)
         row_c = (*text2_c, 110)
         panel_w = int(self.W * 0.68)
-        col_w = panel_w // 3
+        # Allocate columns: 43% / 29% / 28% so RECENT #1s has room.
+        col1_w = int(panel_w * 0.43)
+        col2_w = int(panel_w * 0.29)
+        col_x0 = self._margin_right + 10
+        col_x1 = col_x0 + col1_w
+        col_x2 = col_x1 + col2_w
 
-        # Resolve tenure column header based on time_unit config.
+        # Resolve tenure column header and entry suffix from time_unit.
         _unit = self.cfg.time_unit.lower() if hasattr(self.cfg, "time_unit") else "auto"
-        if _unit == "auto":
-            _unit_label = "YEARS"
-        elif _unit == "seasons":
-            _unit_label = "SEASONS"
-        elif _unit == "games":
-            _unit_label = "GAMES"
-        elif _unit == "days":
-            _unit_label = "DAYS"
-        elif _unit == "weeks":
-            _unit_label = "WEEKS"
-        elif _unit == "months":
-            _unit_label = "MONTHS"
-        else:
-            _unit_label = "YEARS"
+        _UNIT_MAP = {
+            "years": ("YEARS", "yrs"),
+            "seasons": ("SEASONS", "seasons"),
+            "games": ("GAMES", "games"),
+            "days": ("DAYS", "days"),
+            "weeks": ("WEEKS", "weeks"),
+            "months": ("MONTHS", "months"),
+        }
+        _unit_label, _unit_suffix = _UNIT_MAP.get(_unit, ("YEARS", "yrs"))
 
         # LEFT: Recent #1s.
         if self.cfg.show_reign_history and state.reign_history:
-            cx = self._margin_right + 10
+            cx = col_x0
             cy = panel_y
             draw.text((cx, cy), "RECENT #1s", fill=header_c,
                       font=self.font_panel)
@@ -1452,7 +1452,7 @@ class FrameRenderer:
 
         # CENTER: Most [unit] in top N.
         if self.cfg.show_tenure_leaderboard and state.tenure_leaders:
-            cx = self._margin_right + 10 + col_w
+            cx = col_x1
             cy = panel_y
             tenure_header = f"MOST {_unit_label} IN TOP 10"
             draw.text((cx, cy), tenure_header, fill=header_c,
@@ -1461,13 +1461,18 @@ class FrameRenderer:
             for entry in state.tenure_leaders[:5]:
                 if cy + line_h > panel_max_y:
                     break
-                draw.text((cx, cy), _abbreviate_months(entry), fill=row_c,
+                # Replace hardcoded "yrs" suffix from animate.py with
+                # the user-selected unit.
+                display = entry
+                if _unit_suffix != "yrs":
+                    display = display.replace(" yrs", f" {_unit_suffix}")
+                draw.text((cx, cy), _abbreviate_months(display), fill=row_c,
                           font=self.font_panel)
                 cy += line_h
 
         # RIGHT: First to milestones.
         if self.cfg.show_milestone_records and state.milestone_records:
-            cx = self._margin_right + 10 + col_w * 2
+            cx = col_x2
             cy = panel_y
             draw.text((cx, cy), "FIRST TO", fill=header_c,
                       font=self.font_panel)
