@@ -195,6 +195,9 @@ class Config:
     show_milestone_records: bool = True
     add_sound_effects: bool = False
 
+    # --- time unit for tenure column ----------------------------------------
+    time_unit: str = "auto"  # "auto", "years", "seasons", "games", "days", "weeks", "months"
+
     def __post_init__(self) -> None:
         fonts = default_fonts()
         if not self.font_bold:

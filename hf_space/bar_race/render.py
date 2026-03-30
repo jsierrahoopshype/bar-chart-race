@@ -30,6 +30,25 @@ from bar_race.player_teams import PLAYER_TEAM_MAP
 from bar_race.themes import Theme, get_theme
 
 # ---------------------------------------------------------------------------
+# Month abbreviation helper
+# ---------------------------------------------------------------------------
+
+_MONTH_ABBREVS: list[tuple[str, str]] = [
+    ("January", "Jan"), ("February", "Feb"), ("March", "Mar"),
+    ("April", "Apr"), ("May", "May"), ("June", "Jun"),
+    ("July", "Jul"), ("August", "Aug"), ("September", "Sep"),
+    ("October", "Oct"), ("November", "Nov"), ("December", "Dec"),
+]
+
+
+def _abbreviate_months(text: str) -> str:
+    """Replace full month names with 3-letter abbreviations in *text*."""
+    for full, abbr in _MONTH_ABBREVS:
+        text = text.replace(full, abbr)
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Colour helpers
 # ---------------------------------------------------------------------------
 
@@ -895,7 +914,7 @@ class FrameRenderer:
         self.font_value = _load_font(regular_path, max(10, int(20 * scale)))
         self.font_date = _load_font(bold_path, max(14, int(72 * scale)))
         self.font_watermark = _load_font(light_path, max(10, int(18 * scale)))
-        self.font_panel = _load_font(light_path, max(8, int(14 * 1.15 * scale)))
+        self.font_panel = _load_font(light_path, max(8, int(14 * 1.15 * 1.12 * scale)))
         self.font_rank = _load_font(bold_path, max(10, int(20 * scale)))
         self.font_rank_giant = _load_font(bold_path, max(20, int(90 * scale)))
         self.font_branding = _load_font(bold_path, max(8, int(14 * scale)))
@@ -1307,7 +1326,7 @@ class FrameRenderer:
         date_alpha = int(255 * th.date_opacity)
         date_xy = (self.W - self._margin_right - 10,
                    int(self.H * 0.93))
-        date_text = state.date_label
+        date_text = _abbreviate_months(state.date_label)
         if th.date_uppercase:
             date_text = date_text.upper()
         draw.text(
@@ -1400,6 +1419,23 @@ class FrameRenderer:
         panel_w = int(self.W * 0.68)
         col_w = panel_w // 3
 
+        # Resolve tenure column header based on time_unit config.
+        _unit = self.cfg.time_unit.lower() if hasattr(self.cfg, "time_unit") else "auto"
+        if _unit == "auto":
+            _unit_label = "YEARS"
+        elif _unit == "seasons":
+            _unit_label = "SEASONS"
+        elif _unit == "games":
+            _unit_label = "GAMES"
+        elif _unit == "days":
+            _unit_label = "DAYS"
+        elif _unit == "weeks":
+            _unit_label = "WEEKS"
+        elif _unit == "months":
+            _unit_label = "MONTHS"
+        else:
+            _unit_label = "YEARS"
+
         # LEFT: Recent #1s.
         if self.cfg.show_reign_history and state.reign_history:
             cx = self._margin_right + 10
@@ -1410,21 +1446,22 @@ class FrameRenderer:
             for entry in state.reign_history[:5]:
                 if cy + line_h > panel_max_y:
                     break
-                draw.text((cx, cy), entry, fill=row_c,
+                draw.text((cx, cy), _abbreviate_months(entry), fill=row_c,
                           font=self.font_panel)
                 cy += line_h
 
-        # CENTER: Most years in top N.
+        # CENTER: Most [unit] in top N.
         if self.cfg.show_tenure_leaderboard and state.tenure_leaders:
             cx = self._margin_right + 10 + col_w
             cy = panel_y
-            draw.text((cx, cy), "MOST YEARS IN TOP 10", fill=header_c,
+            tenure_header = f"MOST {_unit_label} IN TOP 10"
+            draw.text((cx, cy), tenure_header, fill=header_c,
                       font=self.font_panel)
             cy += line_h
             for entry in state.tenure_leaders[:5]:
                 if cy + line_h > panel_max_y:
                     break
-                draw.text((cx, cy), entry, fill=row_c,
+                draw.text((cx, cy), _abbreviate_months(entry), fill=row_c,
                           font=self.font_panel)
                 cy += line_h
 
@@ -1438,7 +1475,7 @@ class FrameRenderer:
             for entry in state.milestone_records[:5]:
                 if cy + line_h > panel_max_y:
                     break
-                draw.text((cx, cy), entry, fill=row_c,
+                draw.text((cx, cy), _abbreviate_months(entry), fill=row_c,
                           font=self.font_panel)
                 cy += line_h
 

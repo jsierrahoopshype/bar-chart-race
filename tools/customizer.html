@@ -178,6 +178,17 @@ a { color:var(--accent2); }
       <div class="field"><label>Duration (sec) <span class="range-val" id="durVal">30</span></label>
         <input type="range" id="duration" min="10" max="300" value="30" oninput="document.getElementById('durVal').textContent=this.value;update()">
       </div>
+      <div class="field"><label>Time Unit</label>
+        <select id="timeUnit" onchange="update()">
+          <option value="auto" selected>Auto-detect</option>
+          <option value="years">Years</option>
+          <option value="seasons">Seasons</option>
+          <option value="games">Games</option>
+          <option value="days">Days</option>
+          <option value="weeks">Weeks</option>
+          <option value="months">Months</option>
+        </select>
+      </div>
     </div>
 
     <!-- Background -->
@@ -730,6 +741,7 @@ async function fetchPreview() {
       title: getVal('title'),
       subtitle: getVal('subtitle'),
       watermark: getVal('watermark'),
+      time_unit: getVal('timeUnit'),
       overrides: collectOverrides(),
     };
 
@@ -1127,6 +1139,7 @@ async function generateVideo() {
     title: getVal('title'),
     subtitle: getVal('subtitle'),
     watermark: getVal('watermark'),
+    time_unit: getVal('timeUnit'),
     theme_overrides: collectOverrides(),
   };
 
