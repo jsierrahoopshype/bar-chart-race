@@ -351,6 +351,7 @@ class Handler(SimpleHTTPRequestHandler):
                     watermark=config.get("watermark", ""),
                     headshot_dir=str(ASSETS_DIR / "headshots"),
                     logo_dir=str(ASSETS_DIR / "logos"),
+                    time_unit=config.get("time_unit", "auto"),
                 )
 
                 renderer = FrameRenderer(cfg)
@@ -442,6 +443,7 @@ class Handler(SimpleHTTPRequestHandler):
                 watermark=config.get("watermark", ""),
                 headshot_dir=str(ASSETS_DIR / "headshots"),
                 logo_dir=str(ASSETS_DIR / "logos"),
+                time_unit=config.get("time_unit", "auto"),
             )
 
             job_id = uuid.uuid4().hex[:12]

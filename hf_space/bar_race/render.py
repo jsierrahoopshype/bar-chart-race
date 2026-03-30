@@ -1424,17 +1424,13 @@ class FrameRenderer:
         col_x1 = col_x0 + col1_w
         col_x2 = col_x1 + col2_w
 
-        # Resolve tenure column header and entry suffix from time_unit.
-        _unit = self.cfg.time_unit.lower() if hasattr(self.cfg, "time_unit") else "auto"
-        _UNIT_MAP = {
-            "years": ("YEARS", "yrs"),
-            "seasons": ("SEASONS", "seasons"),
-            "games": ("GAMES", "games"),
-            "days": ("DAYS", "days"),
-            "weeks": ("WEEKS", "weeks"),
-            "months": ("MONTHS", "months"),
+        # Resolve tenure column header from time_unit.
+        _unit = self.cfg.time_unit.lower()
+        _UNIT_LABELS = {
+            "years": "YEARS", "seasons": "SEASONS", "games": "GAMES",
+            "days": "DAYS", "weeks": "WEEKS", "months": "MONTHS",
         }
-        _unit_label, _unit_suffix = _UNIT_MAP.get(_unit, ("YEARS", "yrs"))
+        _unit_label = _UNIT_LABELS.get(_unit, "YEARS")
 
         # LEFT: Recent #1s.
         if self.cfg.show_reign_history and state.reign_history:
@@ -1461,12 +1457,7 @@ class FrameRenderer:
             for entry in state.tenure_leaders[:5]:
                 if cy + line_h > panel_max_y:
                     break
-                # Replace hardcoded "yrs" suffix from animate.py with
-                # the user-selected unit.
-                display = entry
-                if _unit_suffix != "yrs":
-                    display = display.replace(" yrs", f" {_unit_suffix}")
-                draw.text((cx, cy), _abbreviate_months(display), fill=row_c,
+                draw.text((cx, cy), _abbreviate_months(entry), fill=row_c,
                           font=self.font_panel)
                 cy += line_h
 
