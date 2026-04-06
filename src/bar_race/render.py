@@ -1424,97 +1424,119 @@ class FrameRenderer:
 
         # --- title + subtitle --------------------------------------------
         title_c = _hex_to_rgb(th.title_color)
-        if th.title_position == "top-center":
-            title_x = self.W // 2
-            title_anchor = "mt"
+
+        if self._is_reels:
+            # --- REELS HEADER: compact logo-left, title-right, subtitle below ---
+            top_margin = int(self.H * 0.03)
+            hdr_x = self._margin_right + 10
+
+            # Logo: ~50px wide, proportional height.
+            logo_right_edge = hdr_x
+            if self._logo is not None:
+                target_logo_w = 50
+                logo_ratio = target_logo_w / max(self._logo.width, 1)
+                lw = target_logo_w
+                lh = int(self._logo.height * logo_ratio)
+                small_logo = self._logo.resize((lw, lh), Image.LANCZOS)
+                img.paste(small_logo, (hdr_x, top_margin), small_logo)
+                logo_right_edge = hdr_x + lw + 10
+                draw = ImageDraw.Draw(img)
+
+            # Title: shrink to fit on one line, min 28px.
+            title_text_x = logo_right_edge
+            avail_w = self.W - title_text_x - self._margin_right - 20
+            if self.cfg.title:
+                title_font = self.font_title
+                font_size = getattr(title_font, 'size', 0)
+                ttw = _text_size(draw, self.cfg.title, title_font)[0]
+                while ttw > avail_w and font_size > 28:
+                    font_size = int(font_size * 0.9)
+                    title_font = _load_font(self._bold_path, font_size)
+                    ttw = _text_size(draw, self.cfg.title, title_font)[0]
+
+                # Last resort: two-line wrap at 28px if still too wide.
+                if ttw > avail_w and font_size <= 28:
+                    words = self.cfg.title.split()
+                    best = len(words)
+                    for i in range(len(words) - 1, 0, -1):
+                        if _text_size(draw, " ".join(words[:i]), title_font)[0] <= avail_w:
+                            best = i
+                            break
+                    line1 = " ".join(words[:best])
+                    line2 = " ".join(words[best:])
+                    line_h_gap = int(max(font_size, 14) * 1.2)
+                    draw.text((title_text_x, top_margin), line1,
+                              fill=(*title_c, 240), font=title_font)
+                    draw.text((title_text_x, top_margin + line_h_gap), line2,
+                              fill=(*title_c, 240), font=title_font)
+                    title_bottom = top_margin + line_h_gap + max(font_size, 14)
+                else:
+                    draw.text((title_text_x, top_margin), self.cfg.title,
+                              fill=(*title_c, 240), font=title_font)
+                    title_bottom = top_margin + max(font_size, 14)
+
+                print(f"[render] Title font size: {font_size}, title width: {ttw}, "
+                      f"available: {avail_w}, frame: {self.W}x{self.H}")
+            else:
+                title_bottom = top_margin + 14
+
+            # Subtitle: 55% of title font size, below title.
+            if self.cfg.subtitle:
+                title_fs = getattr(self.font_title, 'size', 26)
+                sub_size = max(10, int(title_fs * 0.55))
+                sub_font = _load_font(self._medium_path, sub_size)
+                sub_y = title_bottom + 5
+                draw.text((title_text_x, sub_y), self.cfg.subtitle,
+                          fill=(*text2_c, 200), font=sub_font)
+
         else:
-            title_x = self._margin_right + 10
-            title_anchor = "lt"
+            # --- SQUARE / YOUTUBE HEADER (unchanged) ---
+            if th.title_position == "top-center":
+                title_x = self.W // 2
+                title_anchor = "mt"
+            else:
+                title_x = self._margin_right + 10
+                title_anchor = "lt"
 
-        # Draw logo to the left of title if available.
-        logo_offset = 0
-        if self._logo is not None and title_anchor == "lt":
-            logo_y = int(self.H * 0.04)
-            img.paste(self._logo, (title_x, logo_y), self._logo)
-            logo_offset = self._logo.width + 15
-            draw = ImageDraw.Draw(img)
+            # Draw logo to the left of title if available.
+            logo_offset = 0
+            if self._logo is not None and title_anchor == "lt":
+                logo_y = int(self.H * 0.04)
+                img.paste(self._logo, (title_x, logo_y), self._logo)
+                logo_offset = self._logo.width + 15
+                draw = ImageDraw.Draw(img)
 
-        title_extra_lines = 0  # extra lines used by title wrapping
-        if self.cfg.title:
-            avail_w = self.W - title_x - logo_offset - self._margin_right - 30
-            title_font = self.font_title
-            font_size = getattr(title_font, 'size', 0)
-            title_text = self.cfg.title
-            ttw = _text_size(draw, title_text, title_font)[0]
-            title_y = int(self.H * 0.04)
-
-            if ttw > avail_w and font_size > 0:
-                # Try wrapping to two lines at the font's current size.
-                words = title_text.split()
-                best_split = -1
-                for i in range(len(words) - 1, 0, -1):
-                    line1 = " ".join(words[:i])
-                    if _text_size(draw, line1, title_font)[0] <= avail_w:
-                        best_split = i
-                        break
-
-                if best_split > 0:
-                    line1 = " ".join(words[:best_split])
-                    line2 = " ".join(words[best_split:])
-                    l2w = _text_size(draw, line2, title_font)[0]
-                    # If line 2 also fits, draw two lines.
-                    if l2w <= avail_w:
-                        line_spacing = int(font_size * 1.2)
-                        draw.text(
-                            (title_x + logo_offset, title_y),
-                            line1, fill=(*title_c, 240),
-                            font=title_font, anchor=title_anchor,
-                        )
-                        draw.text(
-                            (title_x + logo_offset, title_y + line_spacing),
-                            line2, fill=(*title_c, 240),
-                            font=title_font, anchor=title_anchor,
-                        )
-                        title_extra_lines = 1
-                        title_text = None  # mark as drawn
-
-                # Fall back to shrinking if wrapping didn't work.
-                if title_text is not None:
-                    while ttw > avail_w and font_size > 20:
-                        font_size = int(font_size * 0.9)
-                        title_font = _load_font(self._bold_path, font_size)
-                        ttw = _text_size(draw, title_text, title_font)[0]
-
-            if title_text is not None:
+            if self.cfg.title:
+                avail_w = self.W - title_x - logo_offset - self._margin_right - 30
+                title_font = self.font_title
+                font_size = getattr(title_font, 'size', 0)
+                ttw = _text_size(draw, self.cfg.title, title_font)[0]
+                while ttw > avail_w and font_size > 20:
+                    font_size = int(font_size * 0.9)
+                    title_font = _load_font(self._bold_path, font_size)
+                    ttw = _text_size(draw, self.cfg.title, title_font)[0]
                 draw.text(
-                    (title_x + logo_offset, title_y),
-                    title_text, fill=(*title_c, 240),
+                    (title_x + logo_offset, int(self.H * 0.04)),
+                    self.cfg.title,
+                    fill=(*title_c, 240),
                     font=title_font, anchor=title_anchor,
                 )
-            print(f"[render] Title font size: {font_size}, title width: {ttw}, "
-                  f"available: {avail_w}, frame: {self.W}x{self.H}, "
-                  f"wrapped: {title_extra_lines > 0}")
-
-        if self.cfg.subtitle:
-            avail_w = self.W - title_x - logo_offset - self._margin_right - 30
-            sub_font = self.font_subtitle
-            sub_size = getattr(sub_font, 'size', 0)
-            stw = _text_size(draw, self.cfg.subtitle, sub_font)[0]
-            while stw > avail_w and sub_size > 12:
-                sub_size = int(sub_size * 0.9)
-                sub_font = _load_font(self._medium_path, sub_size)
+            if self.cfg.subtitle:
+                avail_w = self.W - title_x - logo_offset - self._margin_right - 30
+                sub_font = self.font_subtitle
+                sub_size = getattr(sub_font, 'size', 0)
                 stw = _text_size(draw, self.cfg.subtitle, sub_font)[0]
-            # Shift subtitle down if title wrapped to two lines.
-            sub_y_base = int(self.H * 0.04 + 52 * th.title_scale * (self.H / 1080))
-            if title_extra_lines > 0:
-                title_fs = getattr(self.font_title, 'size', 30)
-                sub_y_base += int(title_fs * 1.2) * title_extra_lines
-            draw.text(
-                (title_x + logo_offset, sub_y_base),
-                self.cfg.subtitle,
-                fill=(*text2_c, 200),
-                font=sub_font, anchor=title_anchor,
-            )
+                while stw > avail_w and sub_size > 12:
+                    sub_size = int(sub_size * 0.9)
+                    sub_font = _load_font(self._medium_path, sub_size)
+                    stw = _text_size(draw, self.cfg.subtitle, sub_font)[0]
+                draw.text(
+                    (title_x + logo_offset,
+                     int(self.H * 0.04 + 52 * th.title_scale * (self.H / 1080))),
+                    self.cfg.subtitle,
+                    fill=(*text2_c, 200),
+                    font=sub_font, anchor=title_anchor,
+                )
 
         # --- branding tag -------------------------------------------------
         if th.show_branding_tag and th.branding_text:
