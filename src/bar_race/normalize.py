@@ -83,6 +83,35 @@ def _has_date_name_columns(cols: list[str]) -> bool:
     return hits >= len(cols) * 0.8
 
 
+# Age-month column patterns: "18 years", "18 years, 1 month", "30 years (alt)"
+_AGE_MONTH_RE = re.compile(
+    r"(\d+)\s*years?(?:,\s*(\d+)\s*months?)?", re.IGNORECASE
+)
+
+
+def _parse_age_month(col: str) -> Optional[float]:
+    """Parse "X years, Y months" → decimal age, or None."""
+    s = str(col).strip()
+    # Skip columns with parenthetical notes like "(alt)".
+    if "(" in s:
+        return None
+    m = _AGE_MONTH_RE.search(s)
+    if m:
+        years = int(m.group(1))
+        months = int(m.group(2)) if m.group(2) else 0
+        return years + months / 12.0
+    return None
+
+
+def _has_age_month_columns(cols: list[str]) -> bool:
+    """Return True if ≥80 % of *cols* contain the word 'year(s)'."""
+    if not cols:
+        return False
+    hits = sum(1 for c in cols if _AGE_MONTH_RE.search(str(c).strip())
+               and "(" not in str(c))
+    return hits >= len(cols) * 0.8
+
+
 def _is_transposed_wide(df: pd.DataFrame) -> bool:
     """Detect transposed wide format (players as rows, time periods as cols).
 
@@ -104,6 +133,10 @@ def _is_transposed_wide(df: pd.DataFrame) -> bool:
         return False
 
     other_cols = cols[1:]
+
+    # Check for age-month columns ("18 years", "18 years, 1 month").
+    if _has_age_month_columns(other_cols):
+        return True
 
     # Check for date-name columns ("October 21", "Nov 5").
     if _has_date_name_columns(other_cols):
@@ -203,6 +236,10 @@ def _normalize_transposed_wide(df: pd.DataFrame) -> pd.DataFrame:
     cols = list(df.columns)
     player_col = cols[0]
     time_cols = cols[1:]
+
+    # Branch: age-month columns ("18 years", "18 years, 1 month").
+    if _has_age_month_columns(time_cols):
+        return _normalize_transposed_wide_age_months(df, player_col, time_cols)
 
     # Branch: date-name columns ("October 21", "Nov 5").
     if _has_date_name_columns(time_cols):
@@ -320,6 +357,69 @@ def _normalize_transposed_wide_date_names(
     label_map: dict[pd.Timestamp, str] = {}
     for col_name, ts in col_dates:
         label_map[ts] = col_name.strip()
+
+    result = out[["date", "player", "value", "team"]].copy()
+    result.attrs["date_label_map"] = label_map
+    return result
+
+
+def _normalize_transposed_wide_age_months(
+    df: pd.DataFrame,
+    player_col: str,
+    time_cols: list[str],
+) -> pd.DataFrame:
+    """Handle transposed wide where columns are "X years, Y months".
+
+    Converts to decimal ages, maps to synthetic timestamps for the
+    pipeline, and uses "Age N" as the display label (changes only when
+    the integer year part changes).
+    """
+    # Parse each column into (col_name, decimal_age, year_part).
+    col_ages: list[tuple[str, float, int]] = []
+    for tc in time_cols:
+        age = _parse_age_month(tc)
+        if age is not None:
+            col_ages.append((str(tc), age, int(age)))
+
+    if not col_ages:
+        raise ValueError("No parseable age-month columns found.")
+
+    # Sort by decimal age to ensure correct ordering.
+    col_ages.sort(key=lambda x: x[1])
+
+    # Map decimal age → synthetic timestamp (base date + age * 365.25 days).
+    base = pd.Timestamp("2000-01-01")
+
+    records: list[dict] = []
+    for _, row in df.iterrows():
+        player = str(row[player_col]).strip()
+        for col_name, age, year_part in col_ages:
+            val = row[col_name]
+            if pd.isna(val):
+                continue
+            val = float(val)
+            if val == 0:
+                continue
+            ts = base + pd.Timedelta(days=age * 365.25)
+            records.append({
+                "date": ts,
+                "player": player,
+                "value": val,
+                "team": "",
+                "_year_part": year_part,
+            })
+
+    if not records:
+        raise ValueError("No non-zero data found in age-month columns.")
+
+    out = pd.DataFrame(records)
+    out["value"] = pd.to_numeric(out["value"], errors="coerce")
+
+    # Build label map: timestamp → "Age N" (only changes when year changes).
+    label_map: dict[pd.Timestamp, str] = {}
+    for col_name, age, year_part in col_ages:
+        ts = base + pd.Timedelta(days=age * 365.25)
+        label_map[ts] = f"Age {year_part}"
 
     result = out[["date", "player", "value", "team"]].copy()
     result.attrs["date_label_map"] = label_map

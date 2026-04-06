@@ -937,7 +937,7 @@ class FrameRenderer:
 
         # Layout constants
         if th.label_position == "inside":
-            self._margin_left = int(self.W * 0.18)
+            self._margin_left = int(self.W * 0.08)
         else:
             self._margin_left = int(self.W * 0.22)
         self._margin_right = int(self.W * 0.05)
@@ -1239,6 +1239,7 @@ class FrameRenderer:
                 text_left = max(hs_right_edge + 8, x1 + 10)
                 text_right = x2 - 10
                 avail = text_right - text_left
+                min_gap = 10  # minimum pixels between name and value
 
                 # Dark gradient overlay on left of bar for readability.
                 grad_w = min(bar_w, max(int(bar_w * 0.5), tw + vw + 40))
@@ -1251,38 +1252,49 @@ class FrameRenderer:
                     img.paste(grad, (x1, y1), grad)
                     draw = ImageDraw.Draw(img)
 
-                # White text with shadow for readability.
                 name_y = y1 + (bar_h - th_h) // 2
-                # Text shadow.
-                draw.text((text_left + 1, name_y + 1), name_text,
-                          fill=(0, 0, 0, min(alpha, 120)), font=self.font_name)
+                val_y = y1 + (bar_h - vh) // 2
 
-                # Truncate name if needed.
-                if avail > vw + 30:
-                    max_name_w = avail - vw - 20
+                # Can both name and value fit inside with a gap?
+                if avail >= vw + min_gap + 30:
+                    max_name_w = avail - vw - min_gap - 10
                     display_name = name_text
                     if tw > max_name_w:
-                        # Truncate with ellipsis.
-                        for end in range(len(name_text), 0, -1):
-                            trial = name_text[:end] + "…"
-                            if _text_size(draw, trial, self.font_name)[0] <= max_name_w:
-                                display_name = trial
-                                break
+                        # Abbreviate: "First Last" → "F. Last"
+                        parts = name_text.split()
+                        if len(parts) >= 2:
+                            abbrev = f"{parts[0][0]}. {parts[-1]}"
+                            aw = _text_size(draw, abbrev, self.font_name)[0]
+                            if aw <= max_name_w:
+                                display_name = abbrev
+                            else:
+                                display_name = parts[-1]  # last name only
                         else:
-                            display_name = name_text[:3] + "…"
+                            display_name = name_text[:6] + "…"
+
+                    # Text shadow + name.
+                    draw.text((text_left + 1, name_y + 1), display_name,
+                              fill=(0, 0, 0, min(alpha, 120)), font=self.font_name)
                     draw.text((text_left, name_y), display_name,
                               fill=(255, 255, 255, alpha), font=self.font_name)
                     # Value right-aligned inside bar.
-                    val_y = y1 + (bar_h - vh) // 2
                     draw.text((text_right - vw + 1, val_y + 1), val_text,
                               fill=(0, 0, 0, min(alpha, 120)), font=self.font_value)
                     draw.text((text_right - vw, val_y), val_text,
                               fill=(255, 255, 255, alpha), font=self.font_value)
                 else:
-                    # Bar too short: name inside, value outside.
-                    draw.text((text_left, name_y), name_text,
+                    # Bar too short: name inside (abbreviated), value outside.
+                    display_name = name_text
+                    if tw > avail - 5:
+                        parts = name_text.split()
+                        if len(parts) >= 2:
+                            display_name = f"{parts[0][0]}. {parts[-1]}"
+                        else:
+                            display_name = name_text[:6] + "…"
+                    draw.text((text_left + 1, name_y + 1), display_name,
+                              fill=(0, 0, 0, min(alpha, 120)), font=self.font_name)
+                    draw.text((text_left, name_y), display_name,
                               fill=(255, 255, 255, alpha), font=self.font_name)
-                    val_y = y1 + (bar_h - vh) // 2
                     draw.text((x2 + 10, val_y), val_text,
                               fill=(*text2_c, alpha), font=self.font_value)
 
