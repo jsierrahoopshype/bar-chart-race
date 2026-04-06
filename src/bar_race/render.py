@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import unicodedata
 from pathlib import Path
 from typing import Optional
@@ -46,6 +47,56 @@ def _abbreviate_months(text: str) -> str:
     for full, abbr in _MONTH_ABBREVS:
         text = text.replace(full, abbr)
     return text
+
+
+# Age-month abbreviation: "19 years, 9 months" → "19y 9m", "21 years" → "21y"
+_AGE_MONTH_RE = re.compile(r'(\d+)\s*years?,\s*(\d+)\s*months?')
+_AGE_ONLY_RE = re.compile(r'(\d+)\s*years?')
+
+
+def _abbreviate_ages(text: str) -> str:
+    """Shorten age-month strings: '19 years, 9 months' → '19y 9m'."""
+    # First pass: "N years, M months" → "Ny Mm"
+    text = _AGE_MONTH_RE.sub(lambda m: f"{m.group(1)}y {m.group(2)}m", text)
+    # Second pass: remaining "N years" → "Ny"
+    text = _AGE_ONLY_RE.sub(lambda m: f"{m.group(1)}y", text)
+    return text
+
+
+def _panel_abbreviate(text: str) -> str:
+    """Apply all bottom-panel abbreviations to *text*."""
+    text = _abbreviate_months(text)
+    text = _abbreviate_ages(text)
+    return text
+
+
+def _fit_panel_text(
+    text: str,
+    max_w: int,
+    draw: ImageDraw.Draw,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+) -> str:
+    """Truncate *text* with '...' so it fits within *max_w* pixels."""
+    tw = _text_size(draw, text, font)[0]
+    if tw <= max_w:
+        return text
+    # Try first-initial abbreviation: "LeBron James (...)" → "L. James (...)"
+    parts = text.split("(", 1)
+    name_part = parts[0].strip()
+    rest = f"({parts[1]}" if len(parts) > 1 else ""
+    name_words = name_part.split()
+    if len(name_words) >= 2:
+        short_name = f"{name_words[0][0]}. {name_words[-1]}"
+        candidate = f"{short_name} {rest}".strip() if rest else short_name
+        if _text_size(draw, candidate, font)[0] <= max_w:
+            return candidate
+        text = candidate  # use shorter form for further truncation
+    # Hard truncate with ellipsis.
+    for end in range(len(text), 0, -1):
+        trial = text[:end] + "…"
+        if _text_size(draw, trial, font)[0] <= max_w:
+            return trial
+    return "…"
 
 
 # ---------------------------------------------------------------------------
@@ -1444,6 +1495,11 @@ class FrameRenderer:
         }
         _unit_label = _UNIT_LABELS.get(_unit, "YEARS")
 
+        # Column max widths (with 10px padding).
+        col1_max = col1_w - 10
+        col2_max = col2_w - 10
+        col3_max = self.W - col_x2 - self._margin_right - 10
+
         # LEFT: Recent #1s.
         if self.cfg.show_reign_history and state.reign_history:
             cx = col_x0
@@ -1454,7 +1510,9 @@ class FrameRenderer:
             for entry in state.reign_history[:5]:
                 if cy + line_h > panel_max_y:
                     break
-                draw.text((cx, cy), _abbreviate_months(entry), fill=row_c,
+                txt = _fit_panel_text(
+                    _panel_abbreviate(entry), col1_max, draw, self.font_panel)
+                draw.text((cx, cy), txt, fill=row_c,
                           font=self.font_panel)
                 cy += line_h
 
@@ -1469,7 +1527,9 @@ class FrameRenderer:
             for entry in state.tenure_leaders[:5]:
                 if cy + line_h > panel_max_y:
                     break
-                draw.text((cx, cy), _abbreviate_months(entry), fill=row_c,
+                txt = _fit_panel_text(
+                    _panel_abbreviate(entry), col2_max, draw, self.font_panel)
+                draw.text((cx, cy), txt, fill=row_c,
                           font=self.font_panel)
                 cy += line_h
 
@@ -1483,7 +1543,9 @@ class FrameRenderer:
             for entry in state.milestone_records[:5]:
                 if cy + line_h > panel_max_y:
                     break
-                draw.text((cx, cy), _abbreviate_months(entry), fill=row_c,
+                txt = _fit_panel_text(
+                    _panel_abbreviate(entry), col3_max, draw, self.font_panel)
+                draw.text((cx, cy), txt, fill=row_c,
                           font=self.font_panel)
                 cy += line_h
 
