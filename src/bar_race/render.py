@@ -967,12 +967,11 @@ class FrameRenderer:
         self._medium_path = medium_path
 
         _title_size = max(12, int(44 * text_scale * th.title_scale))
-        _subtitle_size = max(10, int(26 * text_scale))
-        # Subtitle must always be noticeably smaller than title.
-        if _subtitle_size >= _title_size:
-            _subtitle_size = max(10, int(_title_size * 0.6))
         self.font_title = _load_font(bold_path, _title_size)
-        self.font_subtitle = _load_font(medium_path, _subtitle_size)
+        # Subtitle size is always derived from FINAL title size in render().
+        # Store a placeholder here; it gets overridden per-frame.
+        self.font_subtitle = _load_font(medium_path, max(10, int(_title_size * 0.55)))
+        print(f"[render] init title_size={_title_size}, subtitle_size={max(10, int(_title_size * 0.55))}")
         self.font_name = _load_font(medium_path, max(10, int(24 * text_scale)))
         self.font_tenure = _load_font(regular_path, max(8, int(17 * text_scale)))
         self.font_value = _load_font(regular_path, max(10, int(20 * text_scale)))
@@ -1480,11 +1479,12 @@ class FrameRenderer:
             else:
                 title_bottom = top_margin + 14
 
-            # Subtitle: 55% of title font size, below title.
+            # Subtitle: 55% of FINAL title font size, below title.
             if self.cfg.subtitle:
-                title_fs = getattr(self.font_title, 'size', 26)
-                sub_size = max(10, int(title_fs * 0.55))
+                final_title_fs = font_size if (self.cfg.title and font_size > 0) else 26
+                sub_size = max(10, int(final_title_fs * 0.55))
                 sub_font = _load_font(self._medium_path, sub_size)
+                print(f"[render] reels subtitle: title_fs={final_title_fs}, sub_size={sub_size}")
                 sub_y = title_bottom + 5
                 draw.text((title_text_x, sub_y), self.cfg.subtitle,
                           fill=(*text2_c, 200), font=sub_font)
@@ -1522,14 +1522,18 @@ class FrameRenderer:
                     font=title_font, anchor=title_anchor,
                 )
             if self.cfg.subtitle:
+                # Subtitle = 55% of FINAL title font size.
+                final_title_fs = font_size if (self.cfg.title and font_size > 0) else 26
+                sub_size = max(10, int(final_title_fs * 0.55))
+                sub_font = _load_font(self._medium_path, sub_size)
+                # Shrink further if subtitle still overflows.
                 avail_w = self.W - title_x - logo_offset - self._margin_right - 30
-                sub_font = self.font_subtitle
-                sub_size = getattr(sub_font, 'size', 0)
                 stw = _text_size(draw, self.cfg.subtitle, sub_font)[0]
-                while stw > avail_w and sub_size > 12:
+                while stw > avail_w and sub_size > 10:
                     sub_size = int(sub_size * 0.9)
                     sub_font = _load_font(self._medium_path, sub_size)
                     stw = _text_size(draw, self.cfg.subtitle, sub_font)[0]
+                print(f"[render] subtitle: title_fs={final_title_fs}, sub_size={sub_size}")
                 draw.text(
                     (title_x + logo_offset,
                      int(self.H * 0.04 + 52 * th.title_scale * (self.H / 1080))),
