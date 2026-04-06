@@ -161,7 +161,7 @@ a { color:var(--accent2); }
     <div class="section">
       <div class="section-title">Video Settings</div>
       <div class="row">
-        <div class="field"><label>Preset</label>
+        <div class="field"><label>Preview Format</label>
           <select id="preset" onchange="update()">
             <option value="youtube">YouTube (1920x1080)</option>
             <option value="reels">Reels (1080x1920)</option>
@@ -1121,7 +1121,7 @@ function handleFile(file) {
 async function generateVideo() {
   const btn = document.getElementById('generateBtn');
   btn.disabled = true;
-  btn.textContent = 'Generating...';
+  btn.textContent = 'Generating 3 formats...';
 
   const pb = document.getElementById('progressBar');
   const pf = document.getElementById('progressFill');
@@ -1132,7 +1132,6 @@ async function generateVideo() {
 
   const config = {
     theme: currentTheme,
-    preset: getVal('preset'),
     fps: parseInt(getVal('fps')),
     duration: parseInt(getVal('duration')),
     top_n: parseInt(getVal('topN')),
@@ -1149,21 +1148,26 @@ async function generateVideo() {
     if (uploadedFile) formData.append('file', uploadedFile);
 
     const r = await fetch('/api/generate', { method: 'POST', body: formData });
-    const { job_id, output } = await r.json();
+    const { job_id, outputs } = await r.json();
 
     // Listen for progress via SSE (no timeout -- runs until done/error).
     let finished = false;
     const es = new EventSource(`/api/progress/${job_id}`);
     es.addEventListener('progress', e => {
       pf.style.width = e.data + '%';
-      st.textContent = `Encoding: ${e.data}%`;
+      st.textContent = `Rendering: ${e.data}%`;
     });
     es.addEventListener('status', e => { st.textContent = e.data; });
     es.addEventListener('done', e => {
       finished = true;
       es.close();
       pf.style.width = '100%';
-      st.innerHTML = `Done! <a href="/api/download/${output}" download>Download ${output}</a>`;
+      const names = JSON.parse(e.data);
+      const labels = ['Square', 'YouTube', 'Reels'];
+      const links = names.map((n, i) =>
+        `<a href="/api/download/${n}" download style="margin:0 8px">\u2B07 ${labels[i] || n}</a>`
+      ).join(' ');
+      st.innerHTML = `Done! ${links}`;
       btn.disabled = false;
       btn.textContent = 'Generate Video';
     });

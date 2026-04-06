@@ -40,16 +40,20 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 _progress: dict[str, queue.Queue] = {}
 
 
-def _run_pipeline(job_id: str, cfg: Config, input_path: str, temp_theme_slug: str | None = None) -> None:
-    """Run the video pipeline in a background thread, posting progress."""
+def _run_pipeline_multi(job_id: str, base_cfg: Config, input_path: str,
+                        preset_outputs: list[tuple[str, str]],
+                        temp_theme_slug: str | None = None) -> None:
+    """Run the video pipeline for multiple presets, posting progress."""
     q = _progress[job_id]
     try:
         from bar_race.ingest import load
         from bar_race.normalize import normalize
         from bar_race.animate import build_keyframes, interpolate_frames
-        from bar_race.render import FrameRenderer
+        from bar_race.render import FrameRenderer, _headshot_cache
         from bar_race.pipeline import _compute_progressive_max
         from bar_race.encode import encode
+        from bar_race.animate import populate_leader_overlays
+        from bar_race.pipeline import _hold_frames
 
         q.put({"event": "status", "data": "Loading data..."})
         df = load(path=input_path)
@@ -58,68 +62,70 @@ def _run_pipeline(job_id: str, cfg: Config, input_path: str, temp_theme_slug: st
         ndf = normalize(df)
 
         q.put({"event": "status", "data": "Building keyframes..."})
-        kfs = build_keyframes(ndf, cfg.top_n)
+        kfs = build_keyframes(ndf, base_cfg.top_n)
 
-        body_frames = int(cfg.fps * cfg.duration_sec)
+        body_frames = int(base_cfg.fps * base_cfg.duration_sec)
         n_steps = max(1, len(kfs) - 1)
-        min_fpt = max(15, int(cfg.fps * 0.5))
+        min_fpt = max(15, int(base_cfg.fps * 0.5))
         if n_steps <= 50 and body_frames // n_steps < min_fpt:
             body_frames = n_steps * min_fpt
-        frames = interpolate_frames(kfs, total_frames=body_frames, top_n=cfg.top_n)
+        frames = interpolate_frames(kfs, total_frames=body_frames, top_n=base_cfg.top_n)
         _compute_progressive_max(frames, headroom=0.12)
 
-        # Leader overlay tracking.
-        from bar_race.animate import populate_leader_overlays
         _reigns, _sound_events = populate_leader_overlays(
-            frames, fps=cfg.fps,
-            gap_threshold=cfg.gap_alert_threshold,
+            frames, fps=base_cfg.fps,
+            gap_threshold=base_cfg.gap_alert_threshold,
         )
 
-        # Intro / outro hold frames.
-        from bar_race.pipeline import _hold_frames
-        intro_count = int(cfg.fps * cfg.intro_hold_sec)
-        outro_count = int(cfg.fps * cfg.outro_hold_sec)
+        intro_count = int(base_cfg.fps * base_cfg.intro_hold_sec)
+        outro_count = int(base_cfg.fps * base_cfg.outro_hold_sec)
         if intro_count and frames:
             frames = _hold_frames(frames[0], intro_count) + frames
         if outro_count and frames:
             frames = frames + _hold_frames(frames[-1], outro_count)
 
-        total = len(frames)
-        # Verify overlay data survives into outro hold frames.
-        if outro_count and len(frames) > outro_count:
-            last_outro = frames[-1]
-            sys.stderr.write(
-                f"  Outro hold: {outro_count} frames, "
-                f"reign_history={len(last_outro.reign_history)} entries, "
-                f"players_seen={last_outro.players_seen}\n"
+        total_frames = len(frames)
+        n_presets = len(preset_outputs)
+        output_names: list[str] = []
+
+        for idx, (preset_name, output_path) in enumerate(preset_outputs):
+            label = preset_name.capitalize()
+            q.put({"event": "status",
+                    "data": f"Generating {label} ({idx+1}/{n_presets})..."})
+
+            cfg = copy.copy(base_cfg)
+            cfg.preset = preset_name
+            cfg.output = output_path
+
+            _headshot_cache.clear()
+            renderer = FrameRenderer(cfg)
+            preset = cfg.get_preset()
+
+            frame_count = 0
+
+            def frame_gen(renderer=renderer):
+                nonlocal frame_count
+                for fs in frames:
+                    yield renderer.render_rgb_bytes(fs)
+                    frame_count += 1
+                    if frame_count % 10 == 0:
+                        # Scale progress: each preset gets an equal share.
+                        base_pct = int(100 * idx / n_presets)
+                        this_pct = int(100 * frame_count / max(total_frames, 1) / n_presets)
+                        q.put({"event": "progress", "data": str(base_pct + this_pct)})
+
+            encode(
+                frames=frame_gen(),
+                total_frames=total_frames,
+                preset=preset,
+                output=cfg.output,
+                fps=cfg.fps,
+                bitrate=cfg.bitrate,
             )
-        q.put({"event": "status", "data": f"Rendering {total} frames..."})
-        renderer = FrameRenderer(cfg)
-        preset = cfg.get_preset()
-
-        frame_count = 0
-
-        def frame_gen():
-            nonlocal frame_count
-            for fs in frames:
-                yield renderer.render_rgb_bytes(fs)
-                frame_count += 1
-                if frame_count % 10 == 0:
-                    pct = int(100 * frame_count / max(total, 1))
-                    q.put({"event": "progress", "data": str(pct)})
-
-        q.put({"event": "status", "data": "Encoding video..."})
-        encode(
-            frames=frame_gen(),
-            total_frames=total,
-            preset=preset,
-            output=cfg.output,
-            fps=cfg.fps,
-            bitrate=cfg.bitrate,
-        )
+            output_names.append(os.path.basename(output_path))
 
         q.put({"event": "progress", "data": "100"})
-        q.put({"event": "done", "data": cfg.output})
+        q.put({"event": "done", "data": json.dumps(output_names)})
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -430,10 +436,17 @@ class Handler(SimpleHTTPRequestHandler):
                 temp_slug = _make_theme_with_overrides(theme_slug, theme_overrides)
                 theme_slug = temp_slug
 
-            cfg = Config(
+            run_id = uuid.uuid4().hex[:8]
+            preset_outputs: list[tuple[str, str]] = [
+                ("square", str(PROJECT_ROOT / f"output_square_{run_id}.mp4")),
+                ("youtube", str(PROJECT_ROOT / f"output_youtube_{run_id}.mp4")),
+                ("reels", str(PROJECT_ROOT / f"output_reels_{run_id}.mp4")),
+            ]
+
+            base_cfg = Config(
                 input_path=input_path,
-                output=output_path,
-                preset=config.get("preset", "youtube"),
+                output="",
+                preset="square",
                 theme=theme_slug,
                 fps=int(config.get("fps", 60)),
                 duration_sec=float(config.get("duration", 30)),
@@ -450,19 +463,20 @@ class Handler(SimpleHTTPRequestHandler):
             _progress[job_id] = queue.Queue()
 
             thread = threading.Thread(
-                target=_run_pipeline,
-                args=(job_id, cfg, input_path, temp_slug),
+                target=_run_pipeline_multi,
+                args=(job_id, base_cfg, input_path, preset_outputs, temp_slug),
                 daemon=True,
             )
             thread.start()
 
+            output_names = [os.path.basename(p) for _, p in preset_outputs]
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps({
                 "job_id": job_id,
-                "output": output_name,
+                "outputs": output_names,
             }).encode())
             return
 

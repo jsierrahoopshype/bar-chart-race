@@ -911,6 +911,10 @@ class FrameRenderer:
         # Resolve fonts based on theme font_family.
         family = th.font_family
         scale = self.H / 1080
+        # Width-aware scaling: for narrow presets (reels = 1080 wide),
+        # shrink horizontal text so it doesn't overflow.
+        w_ratio = self.W / 1080
+        text_scale = min(scale, w_ratio) if w_ratio < 1.0 else scale
 
         # Use theme's font_family to resolve system fonts.
         # If user explicitly set fonts in config, use those instead.
@@ -958,14 +962,14 @@ class FrameRenderer:
             regular_path = _resolve_font(family, "regular")
             light_path = _resolve_font(family, "light")
 
-        self.font_title = _load_font(bold_path, max(12, int(44 * scale * th.title_scale)))
-        self.font_subtitle = _load_font(medium_path, max(10, int(26 * scale)))
-        self.font_name = _load_font(medium_path, max(10, int(24 * scale)))
-        self.font_tenure = _load_font(regular_path, max(8, int(17 * scale)))
-        self.font_value = _load_font(regular_path, max(10, int(20 * scale)))
-        self.font_date = _load_font(bold_path, max(14, int(72 * scale)))
-        self.font_watermark = _load_font(light_path, max(10, int(18 * scale)))
-        self.font_panel = _load_font(light_path, max(8, int(14 * 1.15 * 1.12 * scale)))
+        self.font_title = _load_font(bold_path, max(12, int(44 * text_scale * th.title_scale)))
+        self.font_subtitle = _load_font(medium_path, max(10, int(26 * text_scale)))
+        self.font_name = _load_font(medium_path, max(10, int(24 * text_scale)))
+        self.font_tenure = _load_font(regular_path, max(8, int(17 * text_scale)))
+        self.font_value = _load_font(regular_path, max(10, int(20 * text_scale)))
+        self.font_date = _load_font(bold_path, max(14, int(72 * 0.75 * text_scale)))
+        self.font_watermark = _load_font(light_path, max(10, int(18 * text_scale)))
+        self.font_panel = _load_font(medium_path, max(8, int(14 * 1.15 * 1.12 * text_scale)))
         self.font_rank = _load_font(bold_path, max(10, int(20 * scale)))
         self.font_rank_giant = _load_font(bold_path, max(20, int(90 * scale)))
         self.font_branding = _load_font(bold_path, max(8, int(14 * scale)))
@@ -1477,8 +1481,8 @@ class FrameRenderer:
         panel_y = self._bar_area_bottom + 4
         panel_max_y = int(self.H * 0.93) - 10  # stop above the date
         line_h = max(11, int(self.H * 0.014))
-        header_c = (*text_c, 178)
-        row_c = (*text2_c, 110)
+        header_c = (*text_c, 217)   # ~85% opacity
+        row_c = (*text2_c, 166)    # ~65% opacity
         panel_w = int(self.W * 0.68)
         # Allocate columns: 43% / 29% / 28% so RECENT #1s has room.
         col1_w = int(panel_w * 0.43)
