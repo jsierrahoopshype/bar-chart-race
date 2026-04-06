@@ -415,11 +415,11 @@ def _normalize_transposed_wide_age_months(
     out = pd.DataFrame(records)
     out["value"] = pd.to_numeric(out["value"], errors="coerce")
 
-    # Build label map: timestamp → "Age N" (only changes when year changes).
+    # Build label map: timestamp → original column header for display.
     label_map: dict[pd.Timestamp, str] = {}
     for col_name, age, year_part in col_ages:
         ts = base + pd.Timedelta(days=age * 365.25)
-        label_map[ts] = f"Age {year_part}"
+        label_map[ts] = col_name.strip()
 
     result = out[["date", "player", "value", "team"]].copy()
     result.attrs["date_label_map"] = label_map
