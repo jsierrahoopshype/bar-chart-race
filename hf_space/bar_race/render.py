@@ -967,12 +967,16 @@ class FrameRenderer:
         self.font_name = _load_font(medium_path, max(10, int(24 * text_scale)))
         self.font_tenure = _load_font(regular_path, max(8, int(17 * text_scale)))
         self.font_value = _load_font(regular_path, max(10, int(20 * text_scale)))
-        self.font_date = _load_font(bold_path, max(14, int(72 * 0.75 * text_scale)))
+        _date_factor = 0.50 if (self.W < self.H and self.W <= 1080) else 0.75
+        self.font_date = _load_font(bold_path, max(14, int(72 * _date_factor * text_scale)))
         self.font_watermark = _load_font(light_path, max(10, int(18 * text_scale)))
         self.font_panel = _load_font(medium_path, max(8, int(14 * 1.15 * 1.12 * text_scale)))
         self.font_rank = _load_font(bold_path, max(10, int(20 * scale)))
         self.font_rank_giant = _load_font(bold_path, max(20, int(90 * scale)))
         self.font_branding = _load_font(bold_path, max(8, int(14 * scale)))
+
+        # Flag: is this the narrow reels format?
+        self._is_reels = (self.W < self.H and self.W <= 1080)
 
         # Precompute background.
         self._bg = _build_background(th, self.W, self.H)
@@ -1008,7 +1012,8 @@ class FrameRenderer:
             if os.path.exists(logo_file):
                 try:
                     logo = Image.open(logo_file).convert("RGBA")
-                    logo_h = max(20, int(80 * scale * th.title_scale))
+                    logo_scale = text_scale if self._is_reels else scale
+                    logo_h = max(20, int(80 * logo_scale * th.title_scale))
                     logo_w = int(logo.width * logo_h / logo.height)
                     self._logo = logo.resize((logo_w, logo_h), Image.LANCZOS)
                 except Exception:
@@ -1420,11 +1425,26 @@ class FrameRenderer:
             draw = ImageDraw.Draw(img)
 
         if self.cfg.title:
+            # Dynamically shrink title font if it overflows the frame.
+            title_font = self.font_title
+            max_title_w = int(self.W * 0.90) - logo_offset - title_x
+            ttw = _text_size(draw, self.cfg.title, title_font)[0]
+            if ttw > max_title_w and max_title_w > 20:
+                # Shrink by 5% increments until it fits.
+                cur_size = getattr(title_font, 'size', 44)
+                for shrink in range(1, 12):
+                    trial_size = max(10, int(cur_size * (1 - shrink * 0.05)))
+                    trial_font = _load_font(
+                        title_font.path if hasattr(title_font, 'path') else '',
+                        trial_size)
+                    if _text_size(draw, self.cfg.title, trial_font)[0] <= max_title_w:
+                        title_font = trial_font
+                        break
             draw.text(
                 (title_x + logo_offset, int(self.H * 0.04)),
                 self.cfg.title,
                 fill=(*title_c, 240),
-                font=self.font_title, anchor=title_anchor,
+                font=title_font, anchor=title_anchor,
             )
         if self.cfg.subtitle:
             draw.text(
@@ -1483,75 +1503,97 @@ class FrameRenderer:
         line_h = max(11, int(self.H * 0.014))
         header_c = (*text_c, 217)   # ~85% opacity
         row_c = (*text2_c, 166)    # ~65% opacity
-        panel_w = int(self.W * 0.68)
-        # Allocate columns: 43% / 29% / 28% so RECENT #1s has room.
-        col1_w = int(panel_w * 0.43)
-        col2_w = int(panel_w * 0.29)
-        col_x0 = self._margin_right + 10
-        col_x1 = col_x0 + col1_w
-        col_x2 = col_x1 + col2_w
 
-        # Resolve tenure column header from time_unit.
-        _unit = self.cfg.time_unit.lower()
-        _UNIT_LABELS = {
-            "years": "YEARS", "seasons": "SEASONS", "games": "GAMES",
-            "days": "DAYS", "weeks": "WEEKS", "months": "MONTHS",
-        }
-        _unit_label = _UNIT_LABELS.get(_unit, "YEARS")
+        if self._is_reels:
+            # Reels: single centered column (RECENT #1s only).
+            reels_col_x = self._margin_right + 10
+            reels_col_max = self.W - self._margin_right * 2 - 20
 
-        # Column max widths (with 10px padding).
-        col1_max = col1_w - 10
-        col2_max = col2_w - 10
-        col3_max = self.W - col_x2 - self._margin_right - 10
-
-        # LEFT: Recent #1s.
-        if self.cfg.show_reign_history and state.reign_history:
-            cx = col_x0
-            cy = panel_y
-            draw.text((cx, cy), "RECENT #1s", fill=header_c,
-                      font=self.font_panel)
-            cy += line_h
-            for entry in state.reign_history[:5]:
-                if cy + line_h > panel_max_y:
-                    break
-                txt = _fit_panel_text(
-                    _panel_abbreviate(entry), col1_max, draw, self.font_panel)
-                draw.text((cx, cy), txt, fill=row_c,
+            if self.cfg.show_reign_history and state.reign_history:
+                cy = panel_y
+                draw.text((reels_col_x, cy), "RECENT #1s", fill=header_c,
                           font=self.font_panel)
                 cy += line_h
+                for entry in state.reign_history[:5]:
+                    if cy + line_h > panel_max_y:
+                        break
+                    txt = _fit_panel_text(
+                        _panel_abbreviate(entry), reels_col_max,
+                        draw, self.font_panel)
+                    draw.text((reels_col_x, cy), txt, fill=row_c,
+                              font=self.font_panel)
+                    cy += line_h
+        else:
+            # Square / YouTube: three-column layout.
+            panel_w = int(self.W * 0.68)
+            # Allocate columns: 43% / 29% / 28% so RECENT #1s has room.
+            col1_w = int(panel_w * 0.43)
+            col2_w = int(panel_w * 0.29)
+            col_x0 = self._margin_right + 10
+            col_x1 = col_x0 + col1_w
+            col_x2 = col_x1 + col2_w
 
-        # CENTER: Most [unit] in top N.
-        if self.cfg.show_tenure_leaderboard and state.tenure_leaders:
-            cx = col_x1
-            cy = panel_y
-            tenure_header = f"MOST {_unit_label} IN TOP 10"
-            draw.text((cx, cy), tenure_header, fill=header_c,
-                      font=self.font_panel)
-            cy += line_h
-            for entry in state.tenure_leaders[:5]:
-                if cy + line_h > panel_max_y:
-                    break
-                txt = _fit_panel_text(
-                    _panel_abbreviate(entry), col2_max, draw, self.font_panel)
-                draw.text((cx, cy), txt, fill=row_c,
+            # Resolve tenure column header from time_unit.
+            _unit = self.cfg.time_unit.lower()
+            _UNIT_LABELS = {
+                "years": "YEARS", "seasons": "SEASONS", "games": "GAMES",
+                "days": "DAYS", "weeks": "WEEKS", "months": "MONTHS",
+            }
+            _unit_label = _UNIT_LABELS.get(_unit, "YEARS")
+
+            # Column max widths (with 10px padding).
+            col1_max = col1_w - 10
+            col2_max = col2_w - 10
+            col3_max = self.W - col_x2 - self._margin_right - 10
+
+            # LEFT: Recent #1s.
+            if self.cfg.show_reign_history and state.reign_history:
+                cx = col_x0
+                cy = panel_y
+                draw.text((cx, cy), "RECENT #1s", fill=header_c,
                           font=self.font_panel)
                 cy += line_h
+                for entry in state.reign_history[:5]:
+                    if cy + line_h > panel_max_y:
+                        break
+                    txt = _fit_panel_text(
+                        _panel_abbreviate(entry), col1_max, draw, self.font_panel)
+                    draw.text((cx, cy), txt, fill=row_c,
+                              font=self.font_panel)
+                    cy += line_h
 
-        # RIGHT: First to milestones.
-        if self.cfg.show_milestone_records and state.milestone_records:
-            cx = col_x2
-            cy = panel_y
-            draw.text((cx, cy), "FIRST TO", fill=header_c,
-                      font=self.font_panel)
-            cy += line_h
-            for entry in state.milestone_records[:5]:
-                if cy + line_h > panel_max_y:
-                    break
-                txt = _fit_panel_text(
-                    _panel_abbreviate(entry), col3_max, draw, self.font_panel)
-                draw.text((cx, cy), txt, fill=row_c,
+            # CENTER: Most [unit] in top N.
+            if self.cfg.show_tenure_leaderboard and state.tenure_leaders:
+                cx = col_x1
+                cy = panel_y
+                tenure_header = f"MOST {_unit_label} IN TOP 10"
+                draw.text((cx, cy), tenure_header, fill=header_c,
                           font=self.font_panel)
                 cy += line_h
+                for entry in state.tenure_leaders[:5]:
+                    if cy + line_h > panel_max_y:
+                        break
+                    txt = _fit_panel_text(
+                        _panel_abbreviate(entry), col2_max, draw, self.font_panel)
+                    draw.text((cx, cy), txt, fill=row_c,
+                              font=self.font_panel)
+                    cy += line_h
+
+            # RIGHT: First to milestones.
+            if self.cfg.show_milestone_records and state.milestone_records:
+                cx = col_x2
+                cy = panel_y
+                draw.text((cx, cy), "FIRST TO", fill=header_c,
+                          font=self.font_panel)
+                cy += line_h
+                for entry in state.milestone_records[:5]:
+                    if cy + line_h > panel_max_y:
+                        break
+                    txt = _fit_panel_text(
+                        _panel_abbreviate(entry), col3_max, draw, self.font_panel)
+                    draw.text((cx, cy), txt, fill=row_c,
+                              font=self.font_panel)
+                    cy += line_h
 
         # Player counter — below subtitle in top-left.
         if state.players_seen > 0 and th.show_player_counter:
