@@ -962,13 +962,20 @@ class FrameRenderer:
             regular_path = _resolve_font(family, "regular")
             light_path = _resolve_font(family, "light")
 
+        # Store paths for dynamic font resizing.
+        self._bold_path = bold_path
+        self._medium_path = medium_path
+
         self.font_title = _load_font(bold_path, max(12, int(44 * text_scale * th.title_scale)))
         self.font_subtitle = _load_font(medium_path, max(10, int(26 * text_scale)))
         self.font_name = _load_font(medium_path, max(10, int(24 * text_scale)))
         self.font_tenure = _load_font(regular_path, max(8, int(17 * text_scale)))
         self.font_value = _load_font(regular_path, max(10, int(20 * text_scale)))
-        _date_factor = 0.50 if (self.W < self.H and self.W <= 1080) else 0.75
-        self.font_date = _load_font(bold_path, max(14, int(72 * _date_factor * text_scale)))
+        # Date: cap at 40px for vertical (reels), 54px for others.
+        _date_raw = int(72 * 0.75 * text_scale)
+        if self.H > self.W:
+            _date_raw = min(_date_raw, 40)
+        self.font_date = _load_font(bold_path, max(14, _date_raw))
         self.font_watermark = _load_font(light_path, max(10, int(18 * text_scale)))
         self.font_panel = _load_font(medium_path, max(8, int(14 * 1.15 * 1.12 * text_scale)))
         self.font_rank = _load_font(bold_path, max(10, int(20 * scale)))
@@ -1425,21 +1432,18 @@ class FrameRenderer:
             draw = ImageDraw.Draw(img)
 
         if self.cfg.title:
-            # Dynamically shrink title font if it overflows the frame.
+            # Auto-fit: shrink title until it fits within available width.
+            avail_w = self.W - title_x - logo_offset - self._margin_right - 30
             title_font = self.font_title
-            max_title_w = int(self.W * 0.90) - logo_offset - title_x
+            font_size = getattr(title_font, 'size', 0)
             ttw = _text_size(draw, self.cfg.title, title_font)[0]
-            if ttw > max_title_w and max_title_w > 20:
-                # Shrink by 5% increments until it fits.
-                cur_size = getattr(title_font, 'size', 44)
-                for shrink in range(1, 12):
-                    trial_size = max(10, int(cur_size * (1 - shrink * 0.05)))
-                    trial_font = _load_font(
-                        title_font.path if hasattr(title_font, 'path') else '',
-                        trial_size)
-                    if _text_size(draw, self.cfg.title, trial_font)[0] <= max_title_w:
-                        title_font = trial_font
-                        break
+            # Only attempt shrinking if we have a real TrueType font.
+            while ttw > avail_w and font_size > 20:
+                font_size = int(font_size * 0.9)
+                title_font = _load_font(self._bold_path, font_size)
+                ttw = _text_size(draw, self.cfg.title, title_font)[0]
+            print(f"[render] Title font size: {font_size}, title width: {ttw}, "
+                  f"available: {avail_w}, frame: {self.W}x{self.H}")
             draw.text(
                 (title_x + logo_offset, int(self.H * 0.04)),
                 self.cfg.title,
@@ -1447,11 +1451,20 @@ class FrameRenderer:
                 font=title_font, anchor=title_anchor,
             )
         if self.cfg.subtitle:
+            # Auto-fit subtitle too.
+            avail_w = self.W - title_x - logo_offset - self._margin_right - 30
+            sub_font = self.font_subtitle
+            sub_size = getattr(sub_font, 'size', 0)
+            stw = _text_size(draw, self.cfg.subtitle, sub_font)[0]
+            while stw > avail_w and sub_size > 12:
+                sub_size = int(sub_size * 0.9)
+                sub_font = _load_font(self._medium_path, sub_size)
+                stw = _text_size(draw, self.cfg.subtitle, sub_font)[0]
             draw.text(
                 (title_x + logo_offset, int(self.H * 0.04 + 52 * th.title_scale * (self.H / 1080))),
                 self.cfg.subtitle,
                 fill=(*text2_c, 200),
-                font=self.font_subtitle, anchor=title_anchor,
+                font=sub_font, anchor=title_anchor,
             )
 
         # --- branding tag -------------------------------------------------
