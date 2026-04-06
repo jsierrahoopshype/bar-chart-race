@@ -1011,7 +1011,14 @@ class FrameRenderer:
         else:
             self._margin_left = int(self.W * 0.22)
         self._margin_right = int(self.W * 0.05)
-        self._bar_area_top = int(self.H * 0.16)
+        # Bar area top: compact for all presets — just enough room for
+        # logo + title + subtitle + 20px gap.
+        if self.H > self.W:
+            # Reels: header is compact at ~3% top margin + ~90px content.
+            self._bar_area_top = int(self.H * 0.08)
+        else:
+            # Square/YouTube: slightly more room.
+            self._bar_area_top = int(self.H * 0.13)
         self._bar_area_bottom = int(self.H * 0.86)
 
         # Preload logo image if specified.
