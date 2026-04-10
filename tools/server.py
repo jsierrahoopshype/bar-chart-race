@@ -216,6 +216,25 @@ def _make_theme_with_overrides(slug: str, overrides: dict) -> str:
     return temp_slug
 
 
+def _apply_renames(data, player_renames: dict, category_renames: dict):
+    """Apply player and category renames to ComparisonData in place."""
+    if player_renames:
+        data.players = [player_renames.get(p, p) for p in data.players]
+        for cat in list(data.values):
+            old_vals = data.values[cat]
+            new_vals = {}
+            for p, v in old_vals.items():
+                new_vals[player_renames.get(p, p)] = v
+            data.values[cat] = new_vals
+    if category_renames:
+        data.categories = [category_renames.get(c, c) for c in data.categories]
+        new_values = {}
+        for c, vals in data.values.items():
+            new_values[category_renames.get(c, c)] = vals
+        data.values = new_values
+    return data
+
+
 def _run_comparison_multi(job_id: str, cfg: ComparisonConfig, data, input_path: str) -> None:
     """Run comparison pipeline for all 3 presets in a background thread."""
     q = _progress[job_id]
@@ -565,6 +584,48 @@ class Handler(SimpleHTTPRequestHandler):
                     self.wfile.write(json.dumps(result).encode())
                     return
 
+        if parsed.path == "/api/comparison/transpose":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            content_type = self.headers.get("Content-Type", "")
+            result = {"players": [], "categories": []}
+            if "multipart/form-data" in content_type:
+                parts = _parse_multipart(content_type, body)
+                file_part = parts.get("file", {})
+                if file_part.get("data") and file_part.get("filename"):
+                    ext = Path(file_part["filename"]).suffix
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+                    tmp.write(file_part["data"])
+                    tmp.close()
+                    try:
+                        import pandas as pd
+                        if ext.lower() in (".xlsx", ".xls"):
+                            df = pd.read_excel(tmp.name)
+                        else:
+                            df = pd.read_csv(tmp.name)
+                        # Transpose: swap rows and columns.
+                        df.columns = [str(c).strip() for c in df.columns]
+                        first_col = df.columns[0]
+                        tdf = df.set_index(first_col).T.reset_index()
+                        tdf.columns = [str(c).strip() for c in tdf.columns]
+                        data = load_comparison(tmp.name)
+                        # After transpose, old players become categories and vice versa.
+                        result = {
+                            "players": data.categories,
+                            "categories": data.players,
+                        }
+                    except Exception as e:
+                        import traceback
+                        traceback.print_exc()
+                    finally:
+                        os.unlink(tmp.name)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode())
+            return
+
         if parsed.path == "/api/comparison/preview":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
@@ -606,6 +667,9 @@ class Handler(SimpleHTTPRequestHandler):
                     bg_image="assets/backgrounds/mesh3.jpg",
                     font_dir="assets/fonts",
                 )
+                _apply_renames(data,
+                              config.get("player_renames", {}),
+                              config.get("category_renames", {}))
                 data = _filter_data(data, ccfg)
                 renderer = ConveyorRenderer(ccfg, data)
                 t = renderer.timing()
@@ -673,6 +737,9 @@ class Handler(SimpleHTTPRequestHandler):
                 font_dir="assets/fonts",
             )
             data = load_comparison(input_path)
+            _apply_renames(data,
+                           config.get("player_renames", {}),
+                           config.get("category_renames", {}))
             data = _filter_data(data, ccfg)
 
             job_id = uuid.uuid4().hex[:12]

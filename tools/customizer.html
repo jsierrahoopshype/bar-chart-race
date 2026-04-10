@@ -140,6 +140,23 @@ a { color:var(--accent2); }
 .check-list input { accent-color:var(--accent); }
 .check-list-btns { display:flex; gap:8px; margin-bottom:6px; }
 .check-list-btns button { font-size:11px; padding:2px 8px; background:var(--bg3); border:1px solid var(--border); color:var(--text2); border-radius:4px; cursor:pointer; }
+.swap-btn { width:100%; margin-bottom:10px; padding:6px; font-size:12px; font-weight:600; background:var(--bg3); border:1px solid var(--border); color:var(--text); border-radius:6px; cursor:pointer; transition:background .15s; }
+.swap-btn:hover { background:var(--accent); color:#fff; }
+.swap-btn.flash { background:var(--green); color:#000; }
+
+/* Reorderable list items */
+.reorder-item {
+  display:flex; align-items:center; gap:4px; padding:3px 0; font-size:13px;
+  cursor:default; user-select:none;
+}
+.reorder-item .drag-handle { cursor:grab; color:var(--text2); font-size:14px; padding:0 2px; }
+.reorder-item .drag-handle:active { cursor:grabbing; }
+.reorder-item .move-btns { display:flex; flex-direction:column; gap:0; margin-left:auto; }
+.reorder-item .move-btns button { font-size:9px; padding:0 4px; line-height:1.2; background:none; border:none; color:var(--text2); cursor:pointer; }
+.reorder-item .move-btns button:hover { color:var(--text); }
+.reorder-item .editable-name { cursor:text; border-bottom:1px dashed transparent; padding:0 2px; }
+.reorder-item .editable-name:hover { border-bottom-color:var(--text2); }
+.reorder-item input.edit-input { background:var(--bg); border:1px solid var(--accent2); color:var(--text); font-size:12px; padding:1px 4px; border-radius:3px; width:120px; }
 
 /* Upload zone */
 .upload-zone {
@@ -394,13 +411,17 @@ a { color:var(--accent2); }
     <!-- COMPARISON TAB CONTENT -->
     <div class="tab-content" id="tab-comparison">
       <div class="section">
+        <button class="swap-btn" id="swapBtn" onclick="swapAxes()">Swap Rows ↔ Columns</button>
+      </div>
+
+      <div class="section">
         <div class="section-title">Titles</div>
         <div class="field"><label>Title</label><input type="text" id="compTitle" value="Player Comparison" oninput="updateComp()"></div>
         <div class="field"><label>Subtitle</label><input type="text" id="compSubtitle" value="" oninput="updateComp()"></div>
       </div>
 
       <div class="section">
-        <div class="section-title">Players</div>
+        <div class="section-title">Players (appear on each card)</div>
         <div class="check-list-btns">
           <button onclick="compCheckAll('compPlayers',true)">All</button>
           <button onclick="compCheckAll('compPlayers',false)">None</button>
@@ -409,7 +430,7 @@ a { color:var(--accent2); }
       </div>
 
       <div class="section">
-        <div class="section-title">Categories</div>
+        <div class="section-title">Categories (one card per stat)</div>
         <div class="check-list-btns">
           <button onclick="compCheckAll('compCategories',true)">All</button>
           <button onclick="compCheckAll('compCategories',false)">None</button>
@@ -1326,6 +1347,8 @@ function switchTab(tab) {
 
 let compPlayers = [];
 let compCategories = [];
+let compPlayerRenames = {};   // {originalName: displayName}
+let compCategoryRenames = {};
 
 async function detectDataType(file) {
   const fd = new FormData();
@@ -1340,6 +1363,9 @@ async function detectDataType(file) {
       switchTab('comparison');
       compPlayers = d.players || [];
       compCategories = d.categories || [];
+      compPlayerRenames = {};
+      compCategoryRenames = {};
+      compLIB.clear();
       populateCompChecks();
       updateComp();
     }
@@ -1352,16 +1378,91 @@ function onDataTypeOverride() {
   else if (v === 'bar_race') switchTab('barrace');
 }
 
+// --- Swap axes ---
+async function swapAxes() {
+  const btn = document.getElementById('swapBtn');
+  btn.classList.add('flash');
+  setTimeout(() => btn.classList.remove('flash'), 400);
+  const fd = new FormData();
+  if (uploadedFile) fd.append('file', uploadedFile);
+  try {
+    const r = await fetch('/api/comparison/transpose', { method: 'POST', body: fd });
+    if (!r.ok) return;
+    const d = await r.json();
+    compPlayers = d.players || [];
+    compCategories = d.categories || [];
+    compPlayerRenames = {};
+    compCategoryRenames = {};
+    compLIB.clear();
+    populateCompChecks();
+    updateComp();
+  } catch(e) { console.error('Swap error:', e); }
+}
+
+// --- Populate player/category lists with reorder + edit ---
 function populateCompChecks() {
-  const pEl = document.getElementById('compPlayers');
-  pEl.innerHTML = compPlayers.map(p =>
-    `<label><input type="checkbox" checked value="${p}" onchange="updateComp()"> ${p}</label>`
-  ).join('');
-  const cEl = document.getElementById('compCategories');
-  cEl.innerHTML = compCategories.map((c, i) =>
-    `<label><input type="checkbox" checked value="${c}" onchange="updateComp()"> ${c}` +
-    ` <small style="margin-left:auto;color:var(--text2);cursor:pointer" onclick="toggleLIB(this,event)">[LIB]</small></label>`
-  ).join('');
+  _buildReorderList('compPlayers', compPlayers, compPlayerRenames, false);
+  _buildReorderList('compCategories', compCategories, compCategoryRenames, true);
+}
+
+function _buildReorderList(containerId, items, renames, showLIB) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = items.map((item, i) => {
+    const display = renames[item] || item;
+    const libClass = compLIB.has(item) ? 'color:var(--red)' : 'color:var(--text2)';
+    const libBtn = showLIB
+      ? `<small style="margin-left:4px;${libClass};cursor:pointer;font-size:10px" data-cat="${item}" onclick="toggleLIB(this,event)">[LIB]</small>`
+      : '';
+    return `<div class="reorder-item" data-key="${item}" data-idx="${i}">
+      <input type="checkbox" checked value="${item}" onchange="updateComp()" style="accent-color:var(--accent)">
+      <span class="editable-name" ondblclick="startEdit(this,'${containerId}')">${display}</span>${libBtn}
+      <span class="move-btns">
+        <button onclick="moveItem('${containerId}',${i},-1)">▲</button>
+        <button onclick="moveItem('${containerId}',${i},1)">▼</button>
+      </span>
+    </div>`;
+  }).join('');
+}
+
+// --- Move item up/down ---
+function moveItem(containerId, idx, dir) {
+  const arr = containerId === 'compPlayers' ? compPlayers : compCategories;
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= arr.length) return;
+  [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
+  populateCompChecks();
+  updateComp();
+}
+
+// --- Inline editing ---
+function startEdit(span, containerId) {
+  const item = span.parentElement.dataset.key;
+  const renames = containerId === 'compPlayers' ? compPlayerRenames : compCategoryRenames;
+  const current = renames[item] || item;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'edit-input';
+  input.value = current;
+  input.onblur = () => finishEdit(input, span, item, renames);
+  input.onkeydown = (e) => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') { input.value = current; input.blur(); } };
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+function finishEdit(input, origSpan, origKey, renames) {
+  const newVal = input.value.trim();
+  if (newVal && newVal !== origKey) {
+    renames[origKey] = newVal;
+  } else {
+    delete renames[origKey];
+  }
+  const span = document.createElement('span');
+  span.className = 'editable-name';
+  span.textContent = renames[origKey] || origKey;
+  span.ondblclick = () => startEdit(span, input.closest('.check-list').id);
+  input.replaceWith(span);
+  updateComp();
 }
 
 function compCheckAll(id, val) {
@@ -1371,8 +1472,8 @@ function compCheckAll(id, val) {
 
 let compLIB = new Set();
 function toggleLIB(el, e) {
-  e.preventDefault();
-  const cat = el.parentElement.querySelector('input').value;
+  e.preventDefault(); e.stopPropagation();
+  const cat = el.dataset.cat || el.parentElement.querySelector('input').value;
   if (compLIB.has(cat)) { compLIB.delete(cat); el.style.color='var(--text2)'; }
   else { compLIB.add(cat); el.style.color='var(--red)'; }
 }
@@ -1397,6 +1498,10 @@ function updateComp() {
 function collectCompConfig() {
   const selP = [...document.querySelectorAll('#compPlayers input:checked')].map(c => c.value);
   const selC = [...document.querySelectorAll('#compCategories input:checked')].map(c => c.value);
+  // categories_order = all categories in current UI order (checked ones).
+  const catOrder = [...document.querySelectorAll('#compCategories .reorder-item input:checked')].map(c => c.value);
+  // player_order = players in current UI order (checked ones).
+  const playerOrder = [...document.querySelectorAll('#compPlayers .reorder-item input:checked')].map(c => c.value);
   return {
     title: document.getElementById('compTitle').value,
     subtitle: document.getElementById('compSubtitle').value,
@@ -1408,8 +1513,11 @@ function collectCompConfig() {
     loser_color: document.getElementById('compLoserColor').value,
     selected_players: selP,
     selected_categories: selC,
-    categories_order: selC,
+    categories_order: catOrder,
+    player_order: playerOrder,
     lowest_is_better: [...compLIB],
+    player_renames: Object.keys(compPlayerRenames).length ? compPlayerRenames : undefined,
+    category_renames: Object.keys(compCategoryRenames).length ? compCategoryRenames : undefined,
   };
 }
 
