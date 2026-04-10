@@ -1,4 +1,4 @@
-"""Pillow-based slide renderer for comparison slideshows."""
+"""Pillow-based frame renderer — horizontal conveyor belt of stat cards."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from PIL import Image, ImageDraw, ImageFont
 from comparison.config import ComparisonConfig, PROJECT_ROOT
 from comparison.ingest import ComparisonData
 
-# Reuse headshot matching from bar_race.
 from bar_race.render import _find_headshot_file, _load_font
 
 
@@ -26,7 +25,7 @@ def _hex_to_rgb(h: str) -> tuple[int, int, int]:
 
 
 def _load_bg(path: str, width: int, height: int) -> Image.Image:
-    """Load a background image with cover-crop to exact size."""
+    """Load background image, cover-crop to exact size."""
     img = Image.open(path).convert("RGB")
     src_w, src_h = img.size
     scale = max(width / src_w, height / src_h)
@@ -38,7 +37,6 @@ def _load_bg(path: str, width: int, height: int) -> Image.Image:
 
 
 def _resolve_fonts(font_dir: str) -> dict[str, str]:
-    """Resolve font paths with fallback to system fonts."""
     base = font_dir if os.path.isabs(font_dir) else os.path.join(PROJECT_ROOT, font_dir)
     custom = {
         "bold": os.path.join(base, "Futura_Today_Bold.otf"),
@@ -46,13 +44,12 @@ def _resolve_fonts(font_dir: str) -> dict[str, str]:
         "regular": os.path.join(base, "Futura_Today_Normal.otf"),
         "light": os.path.join(base, "Futura_Today_Light.otf"),
     }
-    # Use custom if files exist and are non-empty, else fall back.
     result: dict[str, str] = {}
     for weight, path in custom.items():
         if os.path.isfile(path) and os.path.getsize(path) > 0:
             result[weight] = path
         else:
-            result[weight] = ""  # _load_font will use default
+            result[weight] = ""
     return result
 
 
@@ -73,228 +70,357 @@ def _draw_rounded_rect(
     xy: tuple[int, int, int, int],
     radius: int,
     fill: tuple[int, ...] | None = None,
+    outline: tuple[int, ...] | None = None,
+    width: int = 1,
 ) -> None:
     x1, y1, x2, y2 = xy
     if x2 <= x1 or y2 <= y1:
         return
     r = min(radius, (y2 - y1) // 2, (x2 - x1) // 2)
     if r < 1:
-        draw.rectangle(xy, fill=fill)
+        draw.rectangle(xy, fill=fill, outline=outline, width=width)
     else:
-        draw.rounded_rectangle(xy, radius=r, fill=fill)
+        draw.rounded_rectangle(xy, radius=r, fill=fill, outline=outline, width=width)
+
+
+def _interleave_categories(
+    data: ComparisonData,
+    lowest_is_better: list[str],
+) -> list[str]:
+    """Re-order categories to alternate wins between players."""
+    players = data.players
+    if len(players) < 2:
+        return list(data.categories)
+
+    p0, p1 = players[0], players[1]
+    p0_wins: list[str] = []
+    p1_wins: list[str] = []
+    ties: list[str] = []
+
+    for cat in data.categories:
+        vals = data.values.get(cat, {})
+        v0, v1 = vals.get(p0, 0.0), vals.get(p1, 0.0)
+        lower = cat in lowest_is_better
+        if (not lower and v0 > v1) or (lower and v0 < v1):
+            p0_wins.append(cat)
+        elif (not lower and v1 > v0) or (lower and v1 < v0):
+            p1_wins.append(cat)
+        else:
+            ties.append(cat)
+
+    # Alternate: p0, p1, p0, p1, ..., then ties at the end.
+    result: list[str] = []
+    i0, i1 = 0, 0
+    turn = 0  # 0 = p0, 1 = p1
+    while i0 < len(p0_wins) or i1 < len(p1_wins):
+        if turn == 0 and i0 < len(p0_wins):
+            result.append(p0_wins[i0])
+            i0 += 1
+        elif turn == 1 and i1 < len(p1_wins):
+            result.append(p1_wins[i1])
+            i1 += 1
+        elif i0 < len(p0_wins):
+            result.append(p0_wins[i0])
+            i0 += 1
+        else:
+            result.append(p1_wins[i1])
+            i1 += 1
+        turn = 1 - turn
+    result.extend(ties)
+    return result
 
 
 # ---------------------------------------------------------------------------
-# Slide renderer
+# Card data (precomputed per category)
 # ---------------------------------------------------------------------------
 
-class SlideRenderer:
-    """Renders individual comparison slides."""
+class _CardData:
+    """Precomputed data for one stat card."""
 
-    def __init__(self, cfg: ComparisonConfig) -> None:
+    __slots__ = ("category", "player_vals", "winner", "runner_up")
+
+    def __init__(
+        self,
+        category: str,
+        player_vals: list[tuple[str, float]],
+        winner: str,
+        runner_up: str,
+    ):
+        self.category = category
+        self.player_vals = player_vals
+        self.winner = winner
+        self.runner_up = runner_up
+
+
+# ---------------------------------------------------------------------------
+# ConveyorRenderer
+# ---------------------------------------------------------------------------
+
+class ConveyorRenderer:
+    """Renders frames of the horizontal conveyor belt animation."""
+
+    def __init__(self, cfg: ComparisonConfig, data: ComparisonData) -> None:
         self.cfg = cfg
+        self.data = data
         self.preset = cfg.get_preset()
         self.W = self.preset.width
         self.H = self.preset.height
 
-        # Resolve fonts.
         fonts = _resolve_fonts(cfg.font_dir)
-        scale = min(self.W, self.H) / 1080
+        s = min(self.W, self.H) / 1080  # base scale
 
-        self.font_title = _load_font(fonts["bold"], max(12, int(40 * scale)))
-        self.font_subtitle = _load_font(fonts["medium"], max(10, int(22 * scale)))
-        self.font_player_name = _load_font(fonts["bold"], max(10, int(20 * scale)))
-        self.font_cat_label = _load_font(fonts["medium"], max(10, int(22 * scale)))
-        self.font_cat_value = _load_font(fonts["bold"], max(12, int(28 * scale)))
-        self.font_small = _load_font(fonts["regular"], max(8, int(14 * scale)))
+        self.font_title = _load_font(fonts["bold"], max(14, int(40 * s)))
+        self.font_subtitle = _load_font(fonts["medium"], max(10, int(22 * s)))
+        self.font_cat = _load_font(fonts["bold"], max(10, int(22 * s)))
+        self.font_name = _load_font(fonts["bold"], max(10, int(24 * s)))
+        self.font_value = _load_font(fonts["bold"], max(16, int(56 * s)))
+        self.font_small = _load_font(fonts["regular"], max(8, int(14 * s)))
 
-        # Load background.
+        # Background.
         bg_path = cfg.resolve_path(cfg.bg_image)
         if os.path.isfile(bg_path):
             self._bg = _load_bg(bg_path, self.W, self.H)
         else:
             self._bg = Image.new("RGBA", (self.W, self.H), (26, 26, 26, 255))
 
-        # Resolve headshot directory.
+        # Headshot directory.
         self._hs_dir = cfg.resolve_path(cfg.headshot_dir)
 
         # Colors.
         self._winner_rgb = _hex_to_rgb(cfg.winner_color)
         self._runner_up_rgb = _hex_to_rgb(cfg.runner_up_color)
 
-    def _load_headshot(self, player: str, size: int) -> Optional[Image.Image]:
-        """Load and resize a player headshot."""
-        if not os.path.isdir(self._hs_dir):
-            return None
-        path = _find_headshot_file(player, self._hs_dir)
-        if path is None:
-            return None
-        try:
-            img = Image.open(str(path)).convert("RGBA")
-            img = img.resize((size, size), Image.LANCZOS)
-            return img
-        except Exception:
-            return None
+        # Card layout constants.
+        self.card_w = int(self.W * 0.32)
+        self.card_gap = int(self.W * 0.02)
+        self.card_stride = self.card_w + self.card_gap
+        self.card_top = int(self.H * 0.12)
+        self.card_h = int(self.H * 0.83)
+        self.card_radius = 12
 
-    def render_slide(
-        self,
-        data: ComparisonData,
-        categories: list[str],
-        slide_num: int,
-        total_slides: int,
-    ) -> Image.Image:
-        """Render a single comparison slide."""
-        img = self._bg.copy()
-        draw = ImageDraw.Draw(img)
+        # Precompute cards in display order.
+        ordered = _interleave_categories(data, cfg.lowest_is_better)
+        self.cards: list[_CardData] = []
+        for cat in ordered:
+            vals = data.values.get(cat, {})
+            player_vals = [(p, vals.get(p, 0.0)) for p in data.players]
+            lower = cat in cfg.lowest_is_better
+            ranked = sorted(player_vals, key=lambda x: x[1], reverse=not lower)
+            winner = ranked[0][0] if ranked else ""
+            runner_up = ranked[1][0] if len(ranked) > 1 else ""
+            if len(ranked) >= 2 and ranked[0][1] == ranked[1][1]:
+                winner = ""
+                runner_up = ""
+            self.cards.append(_CardData(cat, player_vals, winner, runner_up))
 
-        W, H = self.W, self.H
-        players = data.players
-        n_players = len(players)
-        n_cats = len(categories)
+        # Headshot cache.
+        self._hs_cache: dict[str, Optional[Image.Image]] = {}
 
-        # --- Layout zones (percentages of height) ---
-        title_zone_top = int(H * 0.02)
-        headshot_zone_top = int(H * 0.10)
-        headshot_zone_h = int(H * 0.35)
-        name_zone_top = headshot_zone_top + headshot_zone_h + int(H * 0.01)
-        cat_zone_top = name_zone_top + int(H * 0.05)
-        cat_zone_bottom = int(H * 0.95)
-
-        margin_x = int(W * 0.06)
-        content_w = W - margin_x * 2
-
-        # --- Title + subtitle ---
-        if self.cfg.title:
-            tw, _ = _text_size(draw, self.cfg.title, self.font_title)
-            tx = (W - tw) // 2
-            draw.text((tx, title_zone_top), self.cfg.title,
+        # Pre-render static title area onto background.
+        self._bg_with_title = self._bg.copy()
+        draw = ImageDraw.Draw(self._bg_with_title)
+        title_y = int(self.H * 0.02)
+        if cfg.title:
+            tw, _ = _text_size(draw, cfg.title, self.font_title)
+            draw.text(((self.W - tw) // 2, title_y), cfg.title,
                       fill=(255, 255, 255, 240), font=self.font_title)
-        if self.cfg.subtitle:
-            sw, _ = _text_size(draw, self.cfg.subtitle, self.font_subtitle)
-            sx = (W - sw) // 2
-            draw.text((sx, title_zone_top + int(H * 0.04)), self.cfg.subtitle,
+        if cfg.subtitle:
+            sw, _ = _text_size(draw, cfg.subtitle, self.font_subtitle)
+            sub_y = title_y + int(self.H * 0.045)
+            draw.text(((self.W - sw) // 2, sub_y), cfg.subtitle,
                       fill=(200, 200, 200, 200), font=self.font_subtitle)
+        # Thin accent line.
+        line_y = int(self.H * 0.10)
+        draw.line([(int(self.W * 0.1), line_y), (int(self.W * 0.9), line_y)],
+                  fill=(255, 255, 255, 40), width=1)
 
-        # --- Player columns ---
-        col_w = content_w // max(n_players, 1)
+    def _get_headshot(self, player: str, size: int) -> Optional[Image.Image]:
+        key = f"{player}_{size}"
+        if key in self._hs_cache:
+            return self._hs_cache[key]
+        hs = None
+        if os.path.isdir(self._hs_dir):
+            path = _find_headshot_file(player, self._hs_dir)
+            if path is not None:
+                try:
+                    raw = Image.open(str(path)).convert("RGBA")
+                    # Crop to top 75% (face focus), then resize to square.
+                    w, h = raw.size
+                    crop_h = int(h * 0.75)
+                    raw = raw.crop((0, 0, w, crop_h))
+                    raw = raw.resize((size, size), Image.LANCZOS)
+                    hs = raw
+                except Exception:
+                    pass
+        self._hs_cache[key] = hs
+        return hs
 
-        # Headshots.
-        hs_size = min(int(headshot_zone_h * 0.9), col_w - 20)
-        for i, player in enumerate(players):
-            col_center = margin_x + col_w * i + col_w // 2
-            hs = self._load_headshot(player, hs_size)
-            if hs is not None:
-                hs_x = col_center - hs_size // 2
-                hs_y = headshot_zone_top + (headshot_zone_h - hs_size) // 2
-                img.paste(hs, (hs_x, hs_y), hs)
-                draw = ImageDraw.Draw(img)
+    def _render_card(self, card: _CardData, card_img: Image.Image) -> None:
+        """Draw one stat card onto card_img (RGBA, size card_w x card_h)."""
+        draw = ImageDraw.Draw(card_img)
+        cw, ch = card_img.size
+        players = self.data.players
+        n_players = len(players)
 
-        # Player names.
-        for i, player in enumerate(players):
-            col_center = margin_x + col_w * i + col_w // 2
-            nw, nh = _text_size(draw, player, self.font_player_name)
-            nx = col_center - nw // 2
-            draw.text((nx, name_zone_top), player,
-                      fill=(255, 255, 255, 230), font=self.font_player_name)
+        # Card background.
+        _draw_rounded_rect(draw, (0, 0, cw - 1, ch - 1), self.card_radius,
+                           fill=(255, 255, 255, 20),
+                           outline=(255, 255, 255, 38), width=1)
 
-        # --- Category rows ---
-        if n_cats > 0:
-            cat_avail_h = cat_zone_bottom - cat_zone_top
-            row_h = min(cat_avail_h // n_cats, int(H * 0.12))
-            row_gap = max(4, int(row_h * 0.12))
+        # Top accent bar (winner's color).
+        accent_rgb = self._winner_rgb if card.winner else (180, 180, 180)
+        _draw_rounded_rect(draw, (0, 0, cw - 1, 5), self.card_radius,
+                           fill=(*accent_rgb, 180))
 
-            for ci, cat in enumerate(categories):
-                row_y = cat_zone_top + ci * (row_h + row_gap)
-                if row_y + row_h > cat_zone_bottom:
-                    break
+        # Category title.
+        cat_text = card.category.upper()
+        ct_w, ct_h = _text_size(draw, cat_text, self.font_cat)
+        draw.text(((cw - ct_w) // 2, 16), cat_text,
+                  fill=(255, 255, 255, 200), font=self.font_cat)
 
-                cat_vals = data.values.get(cat, {})
+        # Player sections: divide remaining height evenly.
+        section_top = 16 + ct_h + 12
+        section_h = (ch - section_top - 10) // max(n_players, 1)
 
-                # Determine winner and runner-up.
-                player_vals = [(p, cat_vals.get(p, 0.0)) for p in players]
-                is_lower_better = cat in self.cfg.lowest_is_better
+        hs_size = min(int(section_h * 0.50), cw - 40)
 
-                sorted_vals = sorted(
-                    player_vals, key=lambda x: x[1],
-                    reverse=not is_lower_better,
-                )
-                winner = sorted_vals[0][0] if sorted_vals else ""
-                runner_up = sorted_vals[1][0] if len(sorted_vals) > 1 else ""
-                # Only mark runner-up if their value differs from winner.
-                if sorted_vals and len(sorted_vals) > 1:
-                    if sorted_vals[0][1] == sorted_vals[1][1]:
-                        runner_up = ""  # tie — both are winners
-                        winner = ""  # highlight neither on tie
+        for pi, (player, val) in enumerate(card.player_vals):
+            sy = section_top + pi * section_h
+            mid_x = cw // 2
 
-                # Category label (left side).
-                cat_label_w = int(content_w * 0.28)
-                cat_label_x = margin_x
+            # Winner / runner-up background strip.
+            strip_y = sy + 2
+            strip_h = section_h - 4
+            if self.cfg.highlight_winner and player == card.winner:
                 _draw_rounded_rect(
-                    draw,
-                    (cat_label_x, row_y, cat_label_x + cat_label_w, row_y + row_h),
-                    radius=6,
-                    fill=(40, 40, 40, 200),
-                )
-                lw, lh = _text_size(draw, cat, self.font_cat_label)
-                draw.text(
-                    (cat_label_x + 12, row_y + (row_h - lh) // 2),
-                    cat, fill=(255, 255, 255, 220), font=self.font_cat_label,
-                )
+                    draw, (6, strip_y, cw - 6, strip_y + strip_h), 8,
+                    fill=(*self._winner_rgb, 50))
+            elif self.cfg.highlight_winner and player == card.runner_up:
+                _draw_rounded_rect(
+                    draw, (6, strip_y, cw - 6, strip_y + strip_h), 8,
+                    fill=(*self._runner_up_rgb, 40))
 
-                # Value cells.
-                val_area_x = cat_label_x + cat_label_w + 8
-                val_area_w = content_w - cat_label_w - 8
-                cell_w = val_area_w // max(n_players, 1)
-                cell_gap = 6
+            # Headshot.
+            hs = self._get_headshot(player, hs_size)
+            if hs is not None:
+                hx = mid_x - hs_size // 2
+                hy = sy + 8
+                card_img.paste(hs, (hx, hy), hs)
+                draw = ImageDraw.Draw(card_img)
 
-                for pi, player in enumerate(players):
-                    cx = val_area_x + cell_w * pi + cell_gap // 2
-                    cw = cell_w - cell_gap
+            # Player name.
+            name_y = sy + 8 + hs_size + 4
+            nw, nh = _text_size(draw, player, self.font_name)
+            draw.text(((cw - nw) // 2, name_y), player,
+                      fill=(255, 255, 255, 230), font=self.font_name)
 
-                    val = cat_vals.get(player, 0.0)
-                    val_text = f"{val:,.0f}" if val == int(val) else f"{val:,.1f}"
+            # Value.
+            val_text = f"{val:,.0f}" if val == int(val) else f"{val:,.1f}"
+            vw, vh = _text_size(draw, val_text, self.font_value)
+            val_y = name_y + nh + 4
+            # Winner value in accent color.
+            if self.cfg.highlight_winner and player == card.winner:
+                val_color = (*self._winner_rgb, 255)
+            elif self.cfg.highlight_winner and player == card.runner_up:
+                val_color = (*self._runner_up_rgb, 255)
+            else:
+                val_color = (200, 200, 200, 220)
+            draw.text(((cw - vw) // 2, val_y), val_text,
+                      fill=val_color, font=self.font_value)
 
-                    # Cell color based on ranking.
-                    if self.cfg.highlight_winner and player == winner:
-                        cell_fill = (*self._winner_rgb, 230)
-                        text_fill = (255, 255, 255, 255)
-                    elif self.cfg.highlight_winner and player == runner_up:
-                        cell_fill = (*self._runner_up_rgb, 200)
-                        text_fill = (30, 30, 30, 255)
-                    else:
-                        cell_fill = (60, 60, 60, 180)
-                        text_fill = (200, 200, 200, 230)
+    def _prerender_cards(self) -> list[Image.Image]:
+        """Pre-render all card images."""
+        card_images: list[Image.Image] = []
+        for card in self.cards:
+            card_img = Image.new("RGBA", (self.card_w, self.card_h), (0, 0, 0, 0))
+            self._render_card(card, card_img)
+            card_images.append(card_img)
+        return card_images
 
-                    _draw_rounded_rect(
-                        draw,
-                        (cx, row_y, cx + cw, row_y + row_h),
-                        radius=6,
-                        fill=cell_fill,
-                    )
+    def compute_timing(self) -> dict:
+        """Compute animation timing parameters."""
+        n_cards = len(self.cards)
+        fps = self.cfg.fps
 
-                    vw, vh = _text_size(draw, val_text, self.font_cat_value)
-                    draw.text(
-                        (cx + (cw - vw) // 2, row_y + (row_h - vh) // 2),
-                        val_text, fill=text_fill, font=self.font_cat_value,
-                    )
+        # Scroll speed: each card is fully visible for ~1.8 seconds.
+        # A card enters from the right, crosses the frame, exits left.
+        # Distance from right edge entering to left edge exiting:
+        #   frame_width + card_width
+        # Time to cross: ~(card_stride / pixels_per_frame)
+        # We want card visible ~1.8s → pixels_per_frame = card_stride / (1.8 * fps)
+        card_visible_sec = 1.8
+        pixels_per_frame = self.card_stride / (card_visible_sec * fps)
 
-        # --- Slide indicator ---
-        if total_slides > 1:
-            ind_text = f"{slide_num}/{total_slides}"
-            iw, ih = _text_size(draw, ind_text, self.font_small)
-            draw.text(
-                (W - margin_x - iw, H - int(H * 0.03)),
-                ind_text, fill=(150, 150, 150, 120), font=self.font_small,
-            )
+        # Total scroll distance: all cards need to pass through.
+        # First card starts at right edge (x = W), last card exits at left (x = -card_w).
+        total_scroll = self.W + n_cards * self.card_stride
+        scroll_frames = int(total_scroll / pixels_per_frame)
+
+        intro_frames = int(5.0 * fps)
+        outro_frames = int(3.0 * fps)
+        total_frames = intro_frames + scroll_frames + outro_frames
+
+        return {
+            "pixels_per_frame": pixels_per_frame,
+            "intro_frames": intro_frames,
+            "scroll_frames": scroll_frames,
+            "outro_frames": outro_frames,
+            "total_frames": total_frames,
+        }
+
+    def render_frame(
+        self,
+        frame_idx: int,
+        timing: dict,
+        card_images: list[Image.Image],
+    ) -> Image.Image:
+        """Render a single animation frame."""
+        img = self._bg_with_title.copy()
+
+        intro = timing["intro_frames"]
+        ppf = timing["pixels_per_frame"]
+
+        if frame_idx < intro:
+            # Intro: just title, no cards.
+            return img
+
+        scroll_idx = frame_idx - intro
+        scroll_offset = scroll_idx * ppf
+
+        for ci, card_img in enumerate(card_images):
+            # Card x: starts at right edge, moves left.
+            card_x = int(self.W - scroll_offset + ci * self.card_stride)
+
+            # Only render if card is at least partially visible.
+            if card_x > self.W:
+                continue
+            if card_x + self.card_w < 0:
+                continue
+
+            img.paste(card_img, (card_x, self.card_top), card_img)
 
         return img
 
-    def render_slide_rgb_bytes(
+    def render_frame_rgb_bytes(
         self,
-        data: ComparisonData,
-        categories: list[str],
-        slide_num: int,
-        total_slides: int,
+        frame_idx: int,
+        timing: dict,
+        card_images: list[Image.Image],
     ) -> bytes:
-        """Render a slide and return raw RGB bytes."""
-        return self.render_slide(data, categories, slide_num, total_slides).convert("RGB").tobytes()
+        return self.render_frame(frame_idx, timing, card_images).convert("RGB").tobytes()
+
+    def render_card_png(self, card_idx: int) -> Image.Image:
+        """Render a single card as a standalone PNG with background."""
+        # Create a card-sized frame with background.
+        pad = 40
+        out_w = self.card_w + pad * 2
+        out_h = self.card_h + pad * 2
+        bg_path = self.cfg.resolve_path(self.cfg.bg_image)
+        if os.path.isfile(bg_path):
+            bg = _load_bg(bg_path, out_w, out_h)
+        else:
+            bg = Image.new("RGBA", (out_w, out_h), (26, 26, 26, 255))
+        card_img = Image.new("RGBA", (self.card_w, self.card_h), (0, 0, 0, 0))
+        self._render_card(self.cards[card_idx], card_img)
+        bg.paste(card_img, (pad, pad), card_img)
+        return bg
