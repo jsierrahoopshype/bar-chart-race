@@ -30,6 +30,11 @@ from bar_race.config import Config
 from bar_race.render import FrameRenderer, _headshot_cache
 from bar_race.themes import THEMES, get_theme, list_themes
 
+from comparison.config import ComparisonConfig
+from comparison.ingest import load as load_comparison
+from comparison.render import ConveyorRenderer
+from comparison.pipeline import _filter_data, run_single_preset
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TOOLS_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = PROJECT_ROOT / "assets"
@@ -209,6 +214,50 @@ def _make_theme_with_overrides(slug: str, overrides: dict) -> str:
     theme.slug = temp_slug
     THEMES[temp_slug] = theme
     return temp_slug
+
+
+def _run_comparison_multi(job_id: str, cfg: ComparisonConfig, data, input_path: str) -> None:
+    """Run comparison pipeline for all 3 presets in a background thread."""
+    q = _progress[job_id]
+    try:
+        from comparison.render import ConveyorRenderer
+        from comparison.encode import encode as comp_encode
+        presets = [
+            ("square", str(PROJECT_ROOT / f"output_comparison_square_{uuid.uuid4().hex[:6]}.mp4")),
+            ("youtube", str(PROJECT_ROOT / f"output_comparison_youtube_{uuid.uuid4().hex[:6]}.mp4")),
+            ("reels", str(PROJECT_ROOT / f"output_comparison_reels_{uuid.uuid4().hex[:6]}.mp4")),
+        ]
+        output_names = []
+        n_presets = len(presets)
+        for idx, (preset_name, output_path) in enumerate(presets):
+            label = preset_name.capitalize()
+            q.put({"event": "status", "data": f"Generating {label} ({idx+1}/{n_presets})..."})
+            pcfg = copy.copy(cfg)
+            pcfg.preset = preset_name
+            pcfg.output = output_path
+            renderer = ConveyorRenderer(pcfg, data)
+            t = renderer.timing()
+            total = t["total"]
+            preset = pcfg.get_preset()
+            frame_count = 0
+            def gen(r=renderer, t=t, tot=total):
+                nonlocal frame_count
+                for fi in range(tot):
+                    yield r.render_frame_bytes(fi, t)
+                    frame_count += 1
+                    if frame_count % 15 == 0:
+                        base_pct = int(100 * idx / n_presets)
+                        this_pct = int(100 * frame_count / max(tot, 1) / n_presets)
+                        q.put({"event": "progress", "data": str(base_pct + this_pct)})
+            comp_encode(frames=gen(), total_frames=total, preset=preset,
+                        output=pcfg.output, fps=pcfg.fps)
+            output_names.append(os.path.basename(output_path))
+        q.put({"event": "progress", "data": "100"})
+        q.put({"event": "done", "data": json.dumps(output_names)})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        q.put({"event": "error", "data": str(e)})
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -478,6 +527,168 @@ class Handler(SimpleHTTPRequestHandler):
                 "job_id": job_id,
                 "outputs": output_names,
             }).encode())
+            return
+
+        # ------------------------------------------------------------------
+        # Comparison endpoints
+        # ------------------------------------------------------------------
+
+        if parsed.path == "/api/comparison/detect":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            content_type = self.headers.get("Content-Type", "")
+            if "multipart/form-data" in content_type:
+                parts = _parse_multipart(content_type, body)
+                file_part = parts.get("file", {})
+                if file_part.get("data") and file_part.get("filename"):
+                    ext = Path(file_part["filename"]).suffix
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+                    tmp.write(file_part["data"])
+                    tmp.close()
+                    try:
+                        data = load_comparison(tmp.name)
+                        # Heuristic: comparison data has few rows (< 50) and 2+ player columns.
+                        is_comp = len(data.categories) < 50 and len(data.players) >= 2
+                        result = {
+                            "type": "comparison" if is_comp else "bar_race",
+                            "players": data.players,
+                            "categories": data.categories,
+                        }
+                    except Exception:
+                        result = {"type": "bar_race", "players": [], "categories": []}
+                    finally:
+                        os.unlink(tmp.name)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(result).encode())
+                    return
+
+        if parsed.path == "/api/comparison/preview":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            content_type = self.headers.get("Content-Type", "")
+            try:
+                if "multipart/form-data" in content_type:
+                    parts = _parse_multipart(content_type, body)
+                    config = json.loads(parts.get("config", {}).get("data", b"{}").decode())
+                    file_part = parts.get("file", {})
+                    if file_part.get("data") and file_part.get("filename"):
+                        ext = Path(file_part["filename"]).suffix
+                        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+                        tmp.write(file_part["data"])
+                        tmp.close()
+                        input_path = tmp.name
+                    else:
+                        input_path = str(PROJECT_ROOT / "sample_data" / "jordan_vs_lebron.csv")
+                else:
+                    config = json.loads(body)
+                    input_path = str(PROJECT_ROOT / "sample_data" / "jordan_vs_lebron.csv")
+
+                data = load_comparison(input_path)
+                ccfg = ComparisonConfig(
+                    input_path=input_path,
+                    preset=config.get("preset", "square"),
+                    title=config.get("title", ""),
+                    subtitle=config.get("subtitle", ""),
+                    fps=30,
+                    winner_color=config.get("winner_color", "#CC0000"),
+                    runner_up_color=config.get("runner_up_color", "#DAA520"),
+                    loser_color=config.get("loser_color", "#2a2a2a"),
+                    cards_visible=int(config.get("cards_visible", 4)),
+                    scroll_speed=float(config.get("scroll_speed", 1.5)),
+                    selected_players=config.get("selected_players", []),
+                    selected_categories=config.get("selected_categories", []),
+                    categories_order=config.get("categories_order", []),
+                    lowest_is_better=config.get("lowest_is_better", []),
+                    headshot_dir=str(ASSETS_DIR / "headshots"),
+                    bg_image="assets/backgrounds/mesh3.jpg",
+                    font_dir="assets/fonts",
+                )
+                data = _filter_data(data, ccfg)
+                renderer = ConveyorRenderer(ccfg, data)
+                t = renderer.timing()
+
+                # Render first 90 frames as preview image (frame at 1/3 scroll).
+                preview_frame = min(t["intro"] + t["scroll"] // 3, t["total"] - 1)
+                img = renderer.render_frame(preview_frame, t)
+                preset = ccfg.get_preset()
+                pw = min(preset.width, 960)
+                ph = int(pw * preset.height / preset.width)
+                img = img.convert("RGB").resize((pw, ph), PILImage.LANCZOS)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                pic = buf.getvalue()
+
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(pic)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(pic)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self.send_error(500, str(e))
+            return
+
+        if parsed.path == "/api/comparison/generate":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            content_type = self.headers.get("Content-Type", "")
+            if "multipart/form-data" in content_type:
+                parts = _parse_multipart(content_type, body)
+                config = json.loads(parts.get("config", {}).get("data", b"{}").decode())
+                file_part = parts.get("file", {})
+                if file_part.get("data") and file_part.get("filename"):
+                    ext = Path(file_part["filename"]).suffix
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+                    tmp.write(file_part["data"])
+                    tmp.close()
+                    input_path = tmp.name
+                else:
+                    input_path = str(PROJECT_ROOT / "sample_data" / "jordan_vs_lebron.csv")
+            else:
+                config = json.loads(body)
+                input_path = str(PROJECT_ROOT / "sample_data" / "jordan_vs_lebron.csv")
+
+            ccfg = ComparisonConfig(
+                input_path=input_path,
+                preset="square",
+                title=config.get("title", ""),
+                subtitle=config.get("subtitle", ""),
+                fps=30,
+                winner_color=config.get("winner_color", "#CC0000"),
+                runner_up_color=config.get("runner_up_color", "#DAA520"),
+                loser_color=config.get("loser_color", "#2a2a2a"),
+                cards_visible=int(config.get("cards_visible", 4)),
+                scroll_speed=float(config.get("scroll_speed", 1.5)),
+                selected_players=config.get("selected_players", []),
+                selected_categories=config.get("selected_categories", []),
+                categories_order=config.get("categories_order", []),
+                lowest_is_better=config.get("lowest_is_better", []),
+                headshot_dir=str(ASSETS_DIR / "headshots"),
+                bg_image="assets/backgrounds/mesh3.jpg",
+                font_dir="assets/fonts",
+            )
+            data = load_comparison(input_path)
+            data = _filter_data(data, ccfg)
+
+            job_id = uuid.uuid4().hex[:12]
+            _progress[job_id] = queue.Queue()
+            thread = threading.Thread(
+                target=_run_comparison_multi,
+                args=(job_id, ccfg, data, input_path),
+                daemon=True,
+            )
+            thread.start()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps({"job_id": job_id}).encode())
             return
 
         self.send_error(404)

@@ -2,20 +2,45 @@
 
 from __future__ import annotations
 
+import copy
 import sys
 from pathlib import Path
 from typing import Iterator
 
 from comparison.config import ComparisonConfig
-from comparison.ingest import load
+from comparison.ingest import ComparisonData, load
 from comparison.render import ConveyorRenderer
 from comparison.encode import encode
+
+
+def _filter_data(data: ComparisonData, cfg: ComparisonConfig) -> ComparisonData:
+    """Apply selected_players, selected_categories, categories_order filters."""
+    players = data.players
+    categories = data.categories
+    values = data.values
+
+    if cfg.selected_players:
+        players = [p for p in players if p in cfg.selected_players]
+    if cfg.selected_categories:
+        categories = [c for c in categories if c in cfg.selected_categories]
+    if cfg.categories_order:
+        ordered = [c for c in cfg.categories_order if c in categories]
+        remaining = [c for c in categories if c not in ordered]
+        categories = ordered + remaining
+
+    # Rebuild values for filtered players/categories.
+    fv: dict[str, dict[str, float]] = {}
+    for cat in categories:
+        if cat in values:
+            fv[cat] = {p: values[cat].get(p, 0.0) for p in players}
+    return ComparisonData(players=players, categories=categories, values=fv)
 
 
 def run(cfg: ComparisonConfig) -> None:
     """Run the full comparison conveyor-belt pipeline."""
     print("Loading data...")
     data = load(cfg.input_path)
+    data = _filter_data(data, cfg)
     print(f"  {len(data.players)} players, {len(data.categories)} categories")
 
     presets = [
@@ -27,16 +52,9 @@ def run(cfg: ComparisonConfig) -> None:
     for pi, (preset_name, out_name) in enumerate(presets):
         print(f"\n--- {preset_name} ({pi+1}/{len(presets)}) ---")
 
-        pcfg = ComparisonConfig(
-            input_path=cfg.input_path, output=out_name, preset=preset_name,
-            title=cfg.title, subtitle=cfg.subtitle,
-            categories_per_slide=cfg.categories_per_slide,
-            slide_duration=cfg.slide_duration, fps=cfg.fps,
-            highlight_winner=cfg.highlight_winner,
-            winner_color=cfg.winner_color, runner_up_color=cfg.runner_up_color,
-            headshot_dir=cfg.headshot_dir, bg_image=cfg.bg_image,
-            font_dir=cfg.font_dir, lowest_is_better=cfg.lowest_is_better,
-        )
+        pcfg = copy.copy(cfg)
+        pcfg.output = out_name
+        pcfg.preset = preset_name
 
         renderer = ConveyorRenderer(pcfg, data)
         t = renderer.timing()
@@ -72,3 +90,18 @@ def run(cfg: ComparisonConfig) -> None:
             print(f"  Encoding failed: {e}")
 
     print("\nDone.")
+
+
+def run_single_preset(cfg: ComparisonConfig, data: ComparisonData) -> None:
+    """Run pipeline for a single preset (used by server preview)."""
+    renderer = ConveyorRenderer(cfg, data)
+    t = renderer.timing()
+    total = t["total"]
+    preset = cfg.get_preset()
+
+    def gen() -> Iterator[bytes]:
+        for fi in range(total):
+            yield renderer.render_frame_bytes(fi, t)
+
+    encode(frames=gen(), total_frames=total, preset=preset,
+           output=cfg.output, fps=cfg.fps)

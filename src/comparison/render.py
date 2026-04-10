@@ -110,6 +110,9 @@ class CardBuilder:
         font_name,
         font_value,
         hs_dir: str,
+        winner_rgb: tuple[int, int, int] = _WIN_BG,
+        loser_rgb: tuple[int, int, int] = _LOSE_BG,
+        tie_rgb: tuple[int, int, int] = _TIE_BG,
     ):
         self.cw = card_w
         self.ch = card_h
@@ -117,6 +120,9 @@ class CardBuilder:
         self.font_name = font_name
         self.font_value = font_value
         self.hs_dir = hs_dir
+        self.winner_rgb = winner_rgb
+        self.loser_rgb = loser_rgb
+        self.tie_rgb = tie_rgb
         self._hs_cache: dict[str, Optional[Image.Image]] = {}
 
     def _headshot(self, player: str, width: int, height: int) -> Optional[Image.Image]:
@@ -195,13 +201,11 @@ class CardBuilder:
 
             # Section background (winner/loser).
             if is_tie:
-                bg = _TIE_BG
+                bg = self.tie_rgb
             elif player == winner:
-                bg = _WIN_BG
-            elif player == runner_up:
-                bg = _LOSE_BG if n <= 2 else _LOSE_BG
+                bg = self.winner_rgb
             else:
-                bg = _LOSE_BG
+                bg = self.loser_rgb
             # Draw section background within card border.
             pad = 3
             draw.rounded_rectangle(
@@ -285,21 +289,26 @@ class ConveyorRenderer:
             draw.text(((self.W - sw) // 2, sty), cfg.subtitle,
                       fill=(255, 255, 255, 178), font=self.font_subtitle)
 
-        # Card dimensions.
-        self.card_w = int(self.W * 0.24)
-        self.card_gap = int(self.W * 0.012)
+        # Card dimensions — derive from cards_visible.
+        n_vis = max(2, min(6, cfg.cards_visible))
+        self.card_w = int(self.W / (n_vis + 0.3))
+        self.card_gap = max(8, int(self.W * 0.012))
         self.card_stride = self.card_w + self.card_gap
         self.card_h = int(self.H * 0.80)
         self.card_top = int(self.H * 0.08)
+        self._scroll_speed = cfg.scroll_speed
 
         # Headshot dir.
         hs_dir = cfg.resolve_path(cfg.headshot_dir)
 
-        # Card builder.
+        # Card builder with configurable colors.
         self._builder = CardBuilder(
             self.card_w, self.card_h,
             self.font_card_title, self.font_card_name, self.font_card_value,
             hs_dir,
+            winner_rgb=_hex(cfg.winner_color),
+            loser_rgb=_hex(cfg.loser_color),
+            tie_rgb=_hex(cfg.runner_up_color),
         )
 
         # Order categories.
@@ -325,8 +334,8 @@ class ConveyorRenderer:
     def timing(self) -> dict:
         fps = self.cfg.fps
         n = len(self.card_images)
-        # Speed: one card crosses frame center in ~1.5s.
-        ppf = self.card_stride / (1.5 * fps)
+        # Speed: one card crosses frame center in scroll_speed seconds.
+        ppf = self.card_stride / (self._scroll_speed * fps)
         # Total scroll: from first card entering right edge to last card
         # fully visible (centered).
         total_scroll = self.W + n * self.card_stride

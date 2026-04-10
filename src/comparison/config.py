@@ -32,12 +32,22 @@ class ComparisonConfig:
     highlight_winner: bool = True
     winner_color: str = "#CC0000"
     runner_up_color: str = "#DAA520"
+    loser_color: str = "#2a2a2a"
 
     headshot_dir: str = "assets/headshots"
     bg_image: str = "assets/backgrounds/mesh3.jpg"
     font_dir: str = "assets/fonts"
 
     lowest_is_better: list[str] = field(default_factory=list)
+
+    # Filtering / ordering.
+    selected_players: list[str] = field(default_factory=list)
+    selected_categories: list[str] = field(default_factory=list)
+    categories_order: list[str] = field(default_factory=list)
+
+    # Visual tuning.
+    cards_visible: int = 4
+    scroll_speed: float = 1.5  # seconds per card crossing center
 
     def get_preset(self) -> VideoPreset:
         key = self.preset.lower()
