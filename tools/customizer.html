@@ -140,9 +140,9 @@ a { color:var(--accent2); }
 .check-list input { accent-color:var(--accent); }
 .check-list-btns { display:flex; gap:8px; margin-bottom:6px; }
 .check-list-btns button { font-size:11px; padding:2px 8px; background:var(--bg3); border:1px solid var(--border); color:var(--text2); border-radius:4px; cursor:pointer; }
-.swap-btn { width:100%; margin-bottom:10px; padding:6px; font-size:12px; font-weight:600; background:var(--bg3); border:1px solid var(--border); color:var(--text); border-radius:6px; cursor:pointer; transition:background .15s; }
-.swap-btn:hover { background:var(--accent); color:#fff; }
-.swap-btn.flash { background:var(--green); color:#000; }
+.swap-btn { width:100%; margin-bottom:10px; padding:10px 12px; font-size:13px; font-weight:700; background:var(--bg3); border:2px solid var(--accent2); color:var(--text); border-radius:6px; cursor:pointer; transition:all .15s; letter-spacing:.5px; }
+.swap-btn:hover { background:var(--accent2); color:#fff; border-color:var(--accent2); }
+.swap-btn.flash { background:var(--green); color:#000; border-color:var(--green); }
 
 /* Reorderable list items */
 .reorder-item {
@@ -151,11 +151,12 @@ a { color:var(--accent2); }
 }
 .reorder-item .drag-handle { cursor:grab; color:var(--text2); font-size:14px; padding:0 2px; }
 .reorder-item .drag-handle:active { cursor:grabbing; }
-.reorder-item .move-btns { display:flex; flex-direction:column; gap:0; margin-left:auto; }
-.reorder-item .move-btns button { font-size:9px; padding:0 4px; line-height:1.2; background:none; border:none; color:var(--text2); cursor:pointer; }
-.reorder-item .move-btns button:hover { color:var(--text); }
-.reorder-item .editable-name { cursor:text; border-bottom:1px dashed transparent; padding:0 2px; }
+.reorder-item .move-btns { display:flex; flex-direction:column; gap:0; margin-left:auto; flex-shrink:0; }
+.reorder-item .move-btns button { font-size:11px; padding:1px 5px; line-height:1.1; background:var(--bg); border:1px solid var(--border); color:var(--text2); cursor:pointer; border-radius:3px; }
+.reorder-item .move-btns button:hover { color:var(--text); background:var(--bg3); }
+.reorder-item .editable-name { cursor:text; border-bottom:1px dashed transparent; padding:0 2px; position:relative; }
 .reorder-item .editable-name:hover { border-bottom-color:var(--text2); }
+.reorder-item .editable-name:hover::after { content:' \270E'; font-size:11px; color:var(--text2); }
 .reorder-item input.edit-input { background:var(--bg); border:1px solid var(--accent2); color:var(--text); font-size:12px; padding:1px 4px; border-radius:3px; width:120px; }
 
 /* Upload zone */
@@ -1379,24 +1380,20 @@ function onDataTypeOverride() {
 }
 
 // --- Swap axes ---
-async function swapAxes() {
+function swapAxes() {
   const btn = document.getElementById('swapBtn');
   btn.classList.add('flash');
   setTimeout(() => btn.classList.remove('flash'), 400);
-  const fd = new FormData();
-  if (uploadedFile) fd.append('file', uploadedFile);
-  try {
-    const r = await fetch('/api/comparison/transpose', { method: 'POST', body: fd });
-    if (!r.ok) return;
-    const d = await r.json();
-    compPlayers = d.players || [];
-    compCategories = d.categories || [];
-    compPlayerRenames = {};
-    compCategoryRenames = {};
-    compLIB.clear();
-    populateCompChecks();
-    updateComp();
-  } catch(e) { console.error('Swap error:', e); }
+  // Swap players and categories arrays.
+  const tmp = compPlayers;
+  compPlayers = compCategories;
+  compCategories = tmp;
+  // Clear renames since the meaning changed.
+  compPlayerRenames = {};
+  compCategoryRenames = {};
+  compLIB.clear();
+  populateCompChecks();
+  updateComp();
 }
 
 // --- Populate player/category lists with reorder + edit ---

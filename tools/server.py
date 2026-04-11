@@ -598,25 +598,14 @@ class Handler(SimpleHTTPRequestHandler):
                     tmp.write(file_part["data"])
                     tmp.close()
                     try:
-                        import pandas as pd
-                        if ext.lower() in (".xlsx", ".xls"):
-                            df = pd.read_excel(tmp.name)
-                        else:
-                            df = pd.read_csv(tmp.name)
-                        # Transpose: swap rows and columns.
-                        df.columns = [str(c).strip() for c in df.columns]
-                        first_col = df.columns[0]
-                        tdf = df.set_index(first_col).T.reset_index()
-                        tdf.columns = [str(c).strip() for c in tdf.columns]
                         data = load_comparison(tmp.name)
-                        # After transpose, old players become categories and vice versa.
+                        # Swap: return players as categories and vice versa.
                         result = {
                             "players": data.categories,
                             "categories": data.players,
                         }
-                    except Exception as e:
-                        import traceback
-                        traceback.print_exc()
+                    except Exception:
+                        pass
                     finally:
                         os.unlink(tmp.name)
             self.send_response(200)
