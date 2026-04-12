@@ -241,6 +241,13 @@ def _run_comparison_multi(job_id: str, cfg: ComparisonConfig, data, input_path: 
     try:
         from comparison.render import ConveyorRenderer
         from comparison.encode import encode as comp_encode
+        import numpy as np
+
+        print(f"[comparison] Starting generation: {len(data.players)} players, "
+              f"{len(data.categories)} categories")
+        print(f"[comparison] Players: {data.players}")
+        print(f"[comparison] Categories: {data.categories[:5]}...")
+
         presets = [
             ("square", str(PROJECT_ROOT / f"output_comparison_square_{uuid.uuid4().hex[:6]}.mp4")),
             ("youtube", str(PROJECT_ROOT / f"output_comparison_youtube_{uuid.uuid4().hex[:6]}.mp4")),
@@ -258,19 +265,32 @@ def _run_comparison_multi(job_id: str, cfg: ComparisonConfig, data, input_path: 
             t = renderer.timing()
             total = t["total"]
             preset = pcfg.get_preset()
+
+            print(f"[comparison] {preset_name}: {len(renderer.card_images)} cards, "
+                  f"{total} frames, {preset.width}x{preset.height}")
+
+            # Verify first visible frame isn't black.
+            test_fi = t["intro"] + 10
+            test_frame = renderer.render_frame_bytes(test_fi, t)
+            test_arr = np.frombuffer(test_frame, dtype=np.uint8)
+            print(f"[comparison] Frame {test_fi} pixel mean: {test_arr.mean():.1f}")
+
             frame_count = 0
-            def gen(r=renderer, t=t, tot=total):
+            def gen(r=renderer, timing=t, tot=total, p_idx=idx):
                 nonlocal frame_count
                 for fi in range(tot):
-                    yield r.render_frame_bytes(fi, t)
+                    yield r.render_frame_bytes(fi, timing)
                     frame_count += 1
                     if frame_count % 15 == 0:
-                        base_pct = int(100 * idx / n_presets)
+                        base_pct = int(100 * p_idx / n_presets)
                         this_pct = int(100 * frame_count / max(tot, 1) / n_presets)
                         q.put({"event": "progress", "data": str(base_pct + this_pct)})
+
             comp_encode(frames=gen(), total_frames=total, preset=preset,
                         output=pcfg.output, fps=pcfg.fps)
             output_names.append(os.path.basename(output_path))
+            print(f"[comparison] {preset_name} done: {output_path}")
+
         q.put({"event": "progress", "data": "100"})
         q.put({"event": "done", "data": json.dumps(output_names)})
     except Exception as e:
@@ -637,6 +657,8 @@ class Handler(SimpleHTTPRequestHandler):
                     input_path = str(PROJECT_ROOT / "sample_data" / "jordan_vs_lebron.csv")
 
                 data = load_comparison(input_path)
+                print(f"[comparison preview] Loaded: {len(data.players)} players, "
+                      f"{len(data.categories)} categories from {input_path}")
                 ccfg = ComparisonConfig(
                     input_path=input_path,
                     preset=config.get("preset", "square"),
@@ -660,12 +682,17 @@ class Handler(SimpleHTTPRequestHandler):
                               config.get("player_renames", {}),
                               config.get("category_renames", {}))
                 data = _filter_data(data, ccfg)
+                print(f"[comparison preview] After filter: {len(data.players)} players, "
+                      f"{len(data.categories)} categories")
                 renderer = ConveyorRenderer(ccfg, data)
                 t = renderer.timing()
+                print(f"[comparison preview] {len(renderer.card_images)} cards, "
+                      f"timing: intro={t['intro']}, scroll={t['scroll']}, total={t['total']}")
 
-                # Render first 90 frames as preview image (frame at 1/3 scroll).
+                # Render at 1/3 scroll (well past the blank intro).
                 preview_frame = min(t["intro"] + t["scroll"] // 3, t["total"] - 1)
                 img = renderer.render_frame(preview_frame, t)
+                print(f"[comparison preview] Rendered frame {preview_frame}, size={img.size}")
                 preset = ccfg.get_preset()
                 pw = min(preset.width, 960)
                 ph = int(pw * preset.height / preset.width)
@@ -726,10 +753,16 @@ class Handler(SimpleHTTPRequestHandler):
                 font_dir="assets/fonts",
             )
             data = load_comparison(input_path)
+            print(f"[comparison generate] Loaded: {len(data.players)} players, "
+                  f"{len(data.categories)} categories from {input_path}")
             _apply_renames(data,
                            config.get("player_renames", {}),
                            config.get("category_renames", {}))
             data = _filter_data(data, ccfg)
+            print(f"[comparison generate] After filter: {len(data.players)} players, "
+                  f"{len(data.categories)} categories")
+            if not data.players or not data.categories:
+                print("[comparison generate] WARNING: empty data!")
 
             job_id = uuid.uuid4().hex[:12]
             _progress[job_id] = queue.Queue()
