@@ -98,6 +98,7 @@ _CAT_BAR_TEXT = (20, 20, 20)
 _WIN_BG = (204, 0, 0)
 _LOSE_BG = (85, 85, 85)
 _TIE_BG = (218, 165, 32)
+_HEADSHOT_BG = (0, 151, 167)  # teal #0097a7
 
 
 class CardBuilder:
@@ -175,13 +176,16 @@ class CardBuilder:
         card = Image.new("RGBA", (cw, ch), (*_CARD_BG, 255))
         draw = ImageDraw.Draw(card)
 
-        # Fixed-height elements.
-        row_h = max(28, int(ch * 0.06))
-        cat_bar_h = max(30, int(ch * 0.055))
-        bottom_block = cat_bar_h + n * row_h
-        photo_h = ch - bottom_block - 4  # photo gets ALL remaining space
+        # Proportions: photo 50%, category bar 15%, player rows share 35%.
+        photo_h = int(ch * 0.50)
+        cat_bar_h = int(ch * 0.15)
+        rows_total_h = ch - photo_h - cat_bar_h
+        row_h = rows_total_h // max(n, 1)
 
         # --- Winner's headshot (top, fills card width) ---
+        # Fill headshot area with teal background first.
+        draw.rectangle([0, 0, cw, photo_h], fill=(*_HEADSHOT_BG, 255))
+
         photo_player = winner if winner else (player_vals[0][0] if player_vals else "")
         if is_tie and player_vals:
             photo_player = player_vals[0][0]
@@ -189,9 +193,6 @@ class CardBuilder:
         if hs is not None:
             card.paste(hs, (0, 0), hs)
             draw = ImageDraw.Draw(card)
-        else:
-            # Solid colored fallback.
-            draw.rectangle([0, 0, cw, photo_h], fill=(*_CARD_BG, 255))
 
         # --- Category name bar (white bg, black text) ---
         cat_y = photo_h
@@ -259,9 +260,9 @@ class ConveyorRenderer:
         f = _fonts(cfg.font_dir)
         s = min(self.W, self.H) / 1080
 
-        self.font_card_cat = _load_font(f["bold"], max(10, int(20 * s)))
-        self.font_card_row = _load_font(f["bold"], max(10, int(18 * s)))
-        self.font_card_row_sm = _load_font(f["bold"], max(8, int(13 * s)))
+        self.font_card_cat = _load_font(f["bold"], max(12, int(24 * s)))
+        self.font_card_row = _load_font(f["bold"], max(12, int(26 * s)))
+        self.font_card_row_sm = _load_font(f["bold"], max(10, int(18 * s)))
 
         # Background (no title overlay — cards take full height).
         bg_path = cfg.resolve_path(cfg.bg_image)
