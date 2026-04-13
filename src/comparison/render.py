@@ -132,22 +132,15 @@ class CardBuilder:
             if path:
                 try:
                     raw = Image.open(str(path)).convert("RGBA")
-                    rw, rh = raw.size
-                    # Crop top 90% — show head, shoulders, chest.
-                    crop_h = int(rh * 0.90)
-                    raw = raw.crop((0, 0, rw, crop_h))
-                    # Cover-fill: scale by the LARGER factor so image
-                    # fills every pixel of width x height with no gaps.
-                    rw2, rh2 = raw.size
-                    sc = max(width / rw2, height / rh2)
-                    nw = int(rw2 * sc)
-                    nh = int(rh2 * sc)
+                    # Scale width to card_width, maintain aspect ratio.
+                    sc = width / raw.width
+                    nw = width
+                    nh = int(raw.height * sc)
                     raw = raw.resize((nw, nh), Image.LANCZOS)
-                    # Center-crop to exact target.
-                    left = (nw - width) // 2
-                    top = (nh - height) // 2
-                    raw = raw.crop((left, top, left + width, top + height))
-                    hs = raw
+                    # Place at top of the photo area; teal fills below.
+                    result = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+                    result.paste(raw, (0, 0), raw)
+                    hs = result
                 except Exception:
                     pass
         self._hs_cache[key] = hs
