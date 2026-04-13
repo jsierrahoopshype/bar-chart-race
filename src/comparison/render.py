@@ -133,21 +133,20 @@ class CardBuilder:
                 try:
                     raw = Image.open(str(path)).convert("RGBA")
                     rw, rh = raw.size
-                    # Crop top 90% — show head, shoulders, chest, hands.
+                    # Crop top 90% — show head, shoulders, chest.
                     crop_h = int(rh * 0.90)
                     raw = raw.crop((0, 0, rw, crop_h))
-                    # Scale to fill card width exactly, then crop height.
-                    nw = width
-                    sc = width / raw.width
-                    nh = int(raw.height * sc)
+                    # Cover-fill: scale by the LARGER factor so image
+                    # fills every pixel of width x height with no gaps.
+                    rw2, rh2 = raw.size
+                    sc = max(width / rw2, height / rh2)
+                    nw = int(rw2 * sc)
+                    nh = int(rh2 * sc)
                     raw = raw.resize((nw, nh), Image.LANCZOS)
-                    if nh > height:
-                        top = (nh - height) // 2
-                        raw = raw.crop((0, top, nw, top + height))
-                    elif nh < height:
-                        padded = Image.new("RGBA", (nw, height), (0, 0, 0, 0))
-                        padded.paste(raw, (0, (height - nh) // 2), raw)
-                        raw = padded
+                    # Center-crop to exact target.
+                    left = (nw - width) // 2
+                    top = (nh - height) // 2
+                    raw = raw.crop((left, top, left + width, top + height))
                     hs = raw
                 except Exception:
                     pass
