@@ -133,12 +133,12 @@ class CardBuilder:
                 try:
                     raw = Image.open(str(path)).convert("RGBA")
                     rw, rh = raw.size
-                    # Crop top 70% for face focus.
-                    crop_h = int(rh * 0.70)
+                    # Crop top 90% — show head, shoulders, chest, hands.
+                    crop_h = int(rh * 0.90)
                     raw = raw.crop((0, 0, rw, crop_h))
-                    # Scale to fill width, center-crop height.
-                    sc = width / raw.width
+                    # Scale to fill card width exactly, then crop height.
                     nw = width
+                    sc = width / raw.width
                     nh = int(raw.height * sc)
                     raw = raw.resize((nw, nh), Image.LANCZOS)
                     if nh > height:
@@ -176,11 +176,11 @@ class CardBuilder:
         card = Image.new("RGBA", (cw, ch), (*_CARD_BG, 255))
         draw = ImageDraw.Draw(card)
 
-        # Proportions: photo 50%, category bar 15%, player rows share 35%.
-        photo_h = int(ch * 0.50)
-        cat_bar_h = int(ch * 0.15)
-        rows_total_h = ch - photo_h - cat_bar_h
-        row_h = rows_total_h // max(n, 1)
+        # Proportions: category bar 10%, each player row 10%, photo gets rest.
+        cat_bar_h = int(ch * 0.10)
+        row_h = int(ch * 0.10)
+        bottom_block = cat_bar_h + n * row_h
+        photo_h = ch - bottom_block  # photo expands to fill remaining
 
         # --- Winner's headshot (top, fills card width) ---
         # Fill headshot area with teal background first.
@@ -260,9 +260,9 @@ class ConveyorRenderer:
         f = _fonts(cfg.font_dir)
         s = min(self.W, self.H) / 1080
 
-        self.font_card_cat = _load_font(f["bold"], max(12, int(24 * s)))
-        self.font_card_row = _load_font(f["bold"], max(12, int(26 * s)))
-        self.font_card_row_sm = _load_font(f["bold"], max(10, int(18 * s)))
+        self.font_card_cat = _load_font(f["bold"], max(10, int(20 * s)))
+        self.font_card_row = _load_font(f["bold"], max(10, int(22 * s)))
+        self.font_card_row_sm = _load_font(f["bold"], max(8, int(15 * s)))
 
         # Background (no title overlay — cards take full height).
         bg_path = cfg.resolve_path(cfg.bg_image)
@@ -273,7 +273,7 @@ class ConveyorRenderer:
 
         # Card dimensions.
         n_vis = max(2, min(6, cfg.cards_visible))
-        self.card_gap = max(4, int(self.W * 0.005))
+        self.card_gap = 2
         self.card_w = (self.W - self.card_gap * (n_vis + 1)) // n_vis
         self.card_stride = self.card_w + self.card_gap
         self.card_h = int(self.H * 0.98)
