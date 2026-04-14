@@ -137,10 +137,17 @@ class CardBuilder:
                     nw = width
                     nh = int(raw.height * sc)
                     raw = raw.resize((nw, nh), Image.LANCZOS)
-                    # Place at top of the photo area; teal fills below.
-                    result = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-                    result.paste(raw, (0, 0), raw)
-                    hs = result
+                    # If scaled image is taller than target, crop from
+                    # bottom (keep face/upper body at top).
+                    if nh > height:
+                        raw = raw.crop((0, 0, nw, height))
+                    elif nh < height:
+                        # Image shorter than target — place at top, rest
+                        # stays transparent (teal shows through).
+                        result = Image.new("RGBA", (nw, height), (0, 0, 0, 0))
+                        result.paste(raw, (0, 0), raw)
+                        raw = result
+                    hs = raw
                 except Exception:
                     pass
         self._hs_cache[key] = hs
@@ -263,8 +270,10 @@ class ConveyorRenderer:
         else:
             self._bg = Image.new("RGBA", (self.W, self.H), (10, 10, 20, 255))
 
-        # Card dimensions.
+        # Card dimensions — 3 cards visible by default for bigger headshots.
         n_vis = max(2, min(6, cfg.cards_visible))
+        if n_vis == 4:
+            n_vis = 3  # prefer 3 for bigger cards
         self.card_gap = 2
         self.card_w = (self.W - self.card_gap * (n_vis + 1)) // n_vis
         self.card_stride = self.card_w + self.card_gap
