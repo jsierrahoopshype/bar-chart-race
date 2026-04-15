@@ -146,21 +146,17 @@ class CardBuilder:
             if path:
                 try:
                     raw = Image.open(str(path)).convert("RGBA")
-                    # Scale width to card_width, maintain aspect ratio.
-                    sc = width / raw.width
-                    nw = width
-                    nh = int(raw.height * sc)
+                    # Cover-fill: scale by the LARGER factor so image
+                    # fills every pixel of the target with no gaps.
+                    rw, rh = raw.size
+                    sc = max(width / rw, height / rh)
+                    nw = int(rw * sc)
+                    nh = int(rh * sc)
                     raw = raw.resize((nw, nh), Image.LANCZOS)
-                    # If scaled image is taller than target, crop from
-                    # bottom (keep face/upper body at top).
-                    if nh > height:
-                        raw = raw.crop((0, 0, nw, height))
-                    elif nh < height:
-                        # Image shorter than target — place at top, rest
-                        # stays transparent (teal shows through).
-                        result = Image.new("RGBA", (nw, height), (0, 0, 0, 0))
-                        result.paste(raw, (0, 0), raw)
-                        raw = result
+                    # Center-crop to exact target size.
+                    left = (nw - width) // 2
+                    top = (nh - height) // 2
+                    raw = raw.crop((left, top, left + width, top + height))
                     hs = raw
                 except Exception:
                     pass
@@ -189,10 +185,13 @@ class CardBuilder:
         card = Image.new("RGBA", (cw, ch), (*_CARD_BG, 255))
         draw = ImageDraw.Draw(card)
 
-        # Fixed-pixel text rows; photo gets ALL remaining space.
-        cat_bar_h = 60
-        row_h = 55
-        text_block = cat_bar_h + n * row_h
+        # Text area as percentage of card height based on player count.
+        text_pct = {1: 0.20, 2: 0.25, 3: 0.30, 4: 0.35, 5: 0.40}
+        pct = text_pct.get(n, 0.25 + n * 0.05)
+        pct = min(pct, 0.55)
+        text_block = int(ch * pct)
+        cat_bar_h = text_block // (n + 1)
+        row_h = (text_block - cat_bar_h) // max(n, 1)
         photo_h = ch - text_block
 
         # --- Winner's headshot (top, fills card width) ---
@@ -289,13 +288,10 @@ class ConveyorRenderer:
         # Card count: preset-aware defaults if user hasn't overridden.
         n_vis = cfg.cards_visible
         if n_vis == 4:
-            # Auto-select based on preset width.
-            if self.W >= 1920:
-                n_vis = 4   # youtube
-            elif self.H > self.W:
+            if self.H > self.W:
                 n_vis = 2   # reels
             else:
-                n_vis = 3   # square
+                n_vis = 3   # square and youtube
         n_vis = max(2, min(6, n_vis))
         self.card_gap = 2
         self.card_w = (self.W - self.card_gap * (n_vis + 1)) // n_vis
