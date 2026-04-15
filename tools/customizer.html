@@ -465,6 +465,16 @@ a { color:var(--accent2); }
       </div>
 
       <div class="section">
+        <div class="section-title">Comparison Theme</div>
+        <div class="field">
+          <select id="compTheme" onchange="applyCompTheme();updateComp()">
+            <option value="dark" selected>Dark</option>
+            <option value="cream-serif">Cream &amp; Serif</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="section">
         <div class="section-title">Card Style</div>
         <div class="field"><label>Category bar bg</label>
           <div class="color-row"><input type="color" id="compCatBg" value="#f0f0f0" oninput="updateComp()"></div>
@@ -1521,6 +1531,28 @@ function toggleLIB(el, e) {
 
 let compPreviewTimer = null;
 
+const COMP_THEMES = {
+  dark: {
+    compCatBg:'#f0f0f0', compCatText:'#000000', compWinBg:'#CC0000', compWinText:'#ffffff',
+    compOtherBg:'#2a2a2a', compOtherText:'#ffffff', compHsBg:'#0097a7', compBorderC:'#333333',
+    compWinnerColor:'#CC0000', compRunnerColor:'#DAA520', compLoserColor:'#2a2a2a',
+  },
+  'cream-serif': {
+    compCatBg:'#F0E4C8', compCatText:'#1a1a1a', compWinBg:'#8B7535', compWinText:'#ffffff',
+    compOtherBg:'#F0E4C8', compOtherText:'#1a1a1a', compHsBg:'#F0E4C8', compBorderC:'#D4C49A',
+    compWinnerColor:'#8B7535', compRunnerColor:'#D4C49A', compLoserColor:'#F0E4C8',
+  },
+};
+
+function applyCompTheme() {
+  const t = COMP_THEMES[document.getElementById('compTheme').value];
+  if (!t) return;
+  for (const [id, val] of Object.entries(t)) {
+    const el = document.getElementById(id);
+    if (el) el.value = val;
+  }
+}
+
 function updateComp() {
   // Estimate duration.
   const nCats = document.querySelectorAll('#compCategories input:checked').length || compCategories.length;
@@ -1566,6 +1598,7 @@ function collectCompConfig() {
     other_font_size: parseInt(document.getElementById('compWinFs').value),
     headshot_bg: document.getElementById('compHsBg').value,
     card_border_color: document.getElementById('compBorderC').value,
+    comparison_theme: document.getElementById('compTheme').value,
   };
 }
 

@@ -41,6 +41,9 @@ def main(argv: list[str] | None = None) -> None:
                         help="Disable winner/runner-up highlighting.")
     parser.add_argument("--lowest-is-better", nargs="*", default=[],
                         help="Category names where lower is better (e.g., Turnovers).")
+    parser.add_argument("--comparison-theme", default="dark",
+                        choices=["dark", "cream-serif"],
+                        help="Visual theme (default: dark).")
 
     args = parser.parse_args(argv)
 
@@ -59,6 +62,7 @@ def main(argv: list[str] | None = None) -> None:
         headshot_dir=args.headshot_dir,
         bg_image=args.bg_image,
         lowest_is_better=args.lowest_is_better or [],
+        comparison_theme=args.comparison_theme,
     )
 
     run(cfg)

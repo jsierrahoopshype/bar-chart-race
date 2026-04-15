@@ -39,8 +39,13 @@ def _load_bg(path: str, w: int, h: int) -> Image.Image:
     return img.crop((l, t, l + w, t + h)).convert("RGBA")
 
 
-def _fonts(font_dir: str) -> dict[str, str]:
+def _fonts(font_dir: str, theme: str = "dark") -> dict[str, str]:
     base = font_dir if os.path.isabs(font_dir) else os.path.join(PROJECT_ROOT, font_dir)
+    # Cream-serif theme uses PlayfairDisplay.
+    if theme == "cream-serif":
+        pf = os.path.join(base, "PlayfairDisplay-Bold.ttf")
+        if os.path.isfile(pf) and os.path.getsize(pf) > 0:
+            return {"bold": pf, "medium": pf, "regular": pf, "light": pf}
     out: dict[str, str] = {}
     for wt, fn in [("bold", "Futura_Today_Bold.otf"), ("medium", "Futura_Today_DemiBold.otf"),
                     ("regular", "Futura_Today_Normal.otf"), ("light", "Futura_Today_Light.otf")]:
@@ -258,22 +263,28 @@ class ConveyorRenderer:
         self.W = self.preset.width
         self.H = self.preset.height
 
-        f = _fonts(cfg.font_dir)
+        f = _fonts(cfg.font_dir, cfg.comparison_theme)
         s = min(self.W, self.H) / 1080
 
+        # Cream-serif gets 30% larger stat numbers.
+        value_boost = 1.3 if cfg.comparison_theme == "cream-serif" else 1.0
         cat_fs = max(10, int(cfg.category_font_size * s))
-        row_fs = max(10, int(cfg.winner_font_size * s))
-        row_sm = max(8, int(cfg.winner_font_size * 0.65 * s))
+        row_fs = max(10, int(cfg.winner_font_size * value_boost * s))
+        row_sm = max(8, int(cfg.winner_font_size * 0.65 * value_boost * s))
         self.font_card_cat = _load_font(f["bold"], cat_fs)
         self.font_card_row = _load_font(f["bold"], row_fs)
         self.font_card_row_sm = _load_font(f["bold"], row_sm)
 
-        # Background (no title overlay — cards take full height).
-        bg_path = cfg.resolve_path(cfg.bg_image)
-        if os.path.isfile(bg_path):
-            self._bg = _load_bg(bg_path, self.W, self.H)
+        # Background: use frame_bg color if set, else bg_image, else dark.
+        if cfg.frame_bg:
+            rgb = _hex(cfg.frame_bg)
+            self._bg = Image.new("RGBA", (self.W, self.H), (*rgb, 255))
         else:
-            self._bg = Image.new("RGBA", (self.W, self.H), (10, 10, 20, 255))
+            bg_path = cfg.resolve_path(cfg.bg_image)
+            if os.path.isfile(bg_path):
+                self._bg = _load_bg(bg_path, self.W, self.H)
+            else:
+                self._bg = Image.new("RGBA", (self.W, self.H), (10, 10, 20, 255))
 
         # Card count: preset-aware defaults if user hasn't overridden.
         n_vis = cfg.cards_visible

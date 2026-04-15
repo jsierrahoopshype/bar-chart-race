@@ -688,6 +688,8 @@ class Handler(SimpleHTTPRequestHandler):
                     other_font_size=int(config.get("other_font_size", 24)),
                     headshot_bg=config.get("headshot_bg", "#0097a7"),
                     card_border_color=config.get("card_border_color", "#333333"),
+                    comparison_theme=config.get("comparison_theme", "dark"),
+                    frame_bg=config.get("frame_bg", ""),
                 )
                 _apply_renames(data,
                               config.get("player_renames", {}),
@@ -773,6 +775,8 @@ class Handler(SimpleHTTPRequestHandler):
                 other_font_size=int(config.get("other_font_size", 24)),
                 headshot_bg=config.get("headshot_bg", "#0097a7"),
                 card_border_color=config.get("card_border_color", "#333333"),
+                comparison_theme=config.get("comparison_theme", "dark"),
+                frame_bg=config.get("frame_bg", ""),
             )
             data = load_comparison(input_path)
             print(f"[comparison generate] Loaded: {len(data.players)} players, "
