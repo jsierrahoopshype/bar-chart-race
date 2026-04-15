@@ -49,6 +49,19 @@ class ComparisonConfig:
     cards_visible: int = 4
     scroll_speed: float = 1.5  # seconds per card crossing center
 
+    # Card style — colors, fonts.
+    category_bg: str = "#f0f0f0"
+    category_text_color: str = "#000000"
+    category_font_size: int = 22
+    winner_bg: str = "#CC0000"
+    winner_text_color: str = "#FFFFFF"
+    winner_font_size: int = 24
+    other_bg: str = "#2a2a2a"
+    other_text_color: str = "#FFFFFF"
+    other_font_size: int = 24
+    headshot_bg: str = "#0097a7"
+    card_border_color: str = "#333333"
+
     def get_preset(self) -> VideoPreset:
         key = self.preset.lower()
         if key not in PRESETS:

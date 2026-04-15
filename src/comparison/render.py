@@ -109,6 +109,9 @@ class CardBuilder:
         font_cat, font_row, font_row_small,
         hs_dir: str, bold_path: str,
         winner_rgb=(204, 0, 0), loser_rgb=(85, 85, 85), tie_rgb=(218, 165, 32),
+        cat_bg=(240, 240, 240), cat_text_c=(0, 0, 0),
+        winner_text_c=(255, 255, 255), other_text_c=(255, 255, 255),
+        headshot_bg=(0, 151, 167), border_c=(51, 51, 51),
     ):
         self.cw = card_w
         self.ch = card_h
@@ -120,6 +123,12 @@ class CardBuilder:
         self.winner_rgb = winner_rgb
         self.loser_rgb = loser_rgb
         self.tie_rgb = tie_rgb
+        self.cat_bg = cat_bg
+        self.cat_text_c = cat_text_c
+        self.winner_text_c = winner_text_c
+        self.other_text_c = other_text_c
+        self.headshot_bg = headshot_bg
+        self.border_c = border_c
         self._hs_cache: dict[str, Optional[Image.Image]] = {}
 
     def _headshot(self, player: str, width: int, height: int) -> Optional[Image.Image]:
@@ -175,15 +184,14 @@ class CardBuilder:
         card = Image.new("RGBA", (cw, ch), (*_CARD_BG, 255))
         draw = ImageDraw.Draw(card)
 
-        # Proportions: category bar 10%, each player row 10%, photo gets rest.
-        cat_bar_h = int(ch * 0.10)
-        row_h = int(ch * 0.10)
-        bottom_block = cat_bar_h + n * row_h
-        photo_h = ch - bottom_block  # photo expands to fill remaining
+        # Fixed-pixel text rows; photo gets ALL remaining space.
+        cat_bar_h = 60
+        row_h = 55
+        text_block = cat_bar_h + n * row_h
+        photo_h = ch - text_block
 
         # --- Winner's headshot (top, fills card width) ---
-        # Fill headshot area with teal background first.
-        draw.rectangle([0, 0, cw, photo_h], fill=(*_HEADSHOT_BG, 255))
+        draw.rectangle([0, 0, cw, photo_h], fill=(*self.headshot_bg, 255))
 
         photo_player = winner if winner else (player_vals[0][0] if player_vals else "")
         if is_tie and player_vals:
@@ -193,39 +201,33 @@ class CardBuilder:
             card.paste(hs, (0, 0), hs)
             draw = ImageDraw.Draw(card)
 
-        # --- Category name bar (white bg, black text) ---
+        # --- Category name bar ---
         cat_y = photo_h
-        draw.rectangle([0, cat_y, cw, cat_y + cat_bar_h], fill=(*_CAT_BAR_BG, 255))
+        draw.rectangle([0, cat_y, cw, cat_y + cat_bar_h],
+                       fill=(*self.cat_bg, 255))
         cat_text = category.upper()
         cat_font, ctw, cth = self._fit_text(draw, cat_text, self.font_cat, cw - 12)
         draw.text(((cw - ctw) // 2, cat_y + (cat_bar_h - cth) // 2),
-                  cat_text, fill=(*_CAT_BAR_TEXT, 255), font=cat_font)
+                  cat_text, fill=(*self.cat_text_c, 255), font=cat_font)
 
         # --- Player rows ---
         rows_y = cat_y + cat_bar_h
         for pi, (player, val) in enumerate(player_vals):
             ry = rows_y + pi * row_h
 
-            # Row background color.
             if is_tie:
                 bg = self.tie_rgb
+                tc = self.winner_text_c
             elif player == winner:
                 bg = self.winner_rgb
-            elif player == runner_up:
-                bg = self.loser_rgb
+                tc = self.winner_text_c
             else:
                 bg = self.loser_rgb
+                tc = self.other_text_c
             draw.rectangle([0, ry, cw, ry + row_h - 1], fill=(*bg, 255))
 
-            # Text: "Player Name: Value"
             vt = f"{val:,.0f}" if val == int(val) else f"{val:,.1f}"
             row_text = f"{player}: {vt}"
-            if player == winner and not is_tie:
-                text_color = (255, 255, 255, 255)
-            elif is_tie:
-                text_color = (30, 30, 30, 255)
-            else:
-                text_color = (220, 220, 220, 255)
 
             font = self.font_row
             rtw, rth = _tsz(draw, row_text, font)
@@ -233,11 +235,11 @@ class CardBuilder:
                 font = self.font_row_small
                 rtw, rth = _tsz(draw, row_text, font)
             draw.text(((cw - rtw) // 2, ry + (row_h - rth) // 2),
-                      row_text, fill=text_color, font=font)
+                      row_text, fill=(*tc, 255), font=font)
 
         # Border.
         draw.rounded_rectangle([0, 0, cw - 1, ch - 1], radius=6,
-                               outline=(*_CARD_BORDER, 255), width=2)
+                               outline=(*self.border_c, 255), width=2)
 
         return card
 
@@ -259,9 +261,12 @@ class ConveyorRenderer:
         f = _fonts(cfg.font_dir)
         s = min(self.W, self.H) / 1080
 
-        self.font_card_cat = _load_font(f["bold"], max(10, int(20 * s)))
-        self.font_card_row = _load_font(f["bold"], max(10, int(22 * s)))
-        self.font_card_row_sm = _load_font(f["bold"], max(8, int(15 * s)))
+        cat_fs = max(10, int(cfg.category_font_size * s))
+        row_fs = max(10, int(cfg.winner_font_size * s))
+        row_sm = max(8, int(cfg.winner_font_size * 0.65 * s))
+        self.font_card_cat = _load_font(f["bold"], cat_fs)
+        self.font_card_row = _load_font(f["bold"], row_fs)
+        self.font_card_row_sm = _load_font(f["bold"], row_sm)
 
         # Background (no title overlay — cards take full height).
         bg_path = cfg.resolve_path(cfg.bg_image)
@@ -270,10 +275,17 @@ class ConveyorRenderer:
         else:
             self._bg = Image.new("RGBA", (self.W, self.H), (10, 10, 20, 255))
 
-        # Card dimensions — 3 cards visible by default for bigger headshots.
-        n_vis = max(2, min(6, cfg.cards_visible))
+        # Card count: preset-aware defaults if user hasn't overridden.
+        n_vis = cfg.cards_visible
         if n_vis == 4:
-            n_vis = 3  # prefer 3 for bigger cards
+            # Auto-select based on preset width.
+            if self.W >= 1920:
+                n_vis = 4   # youtube
+            elif self.H > self.W:
+                n_vis = 2   # reels
+            else:
+                n_vis = 3   # square
+        n_vis = max(2, min(6, n_vis))
         self.card_gap = 2
         self.card_w = (self.W - self.card_gap * (n_vis + 1)) // n_vis
         self.card_stride = self.card_w + self.card_gap
@@ -287,9 +299,15 @@ class ConveyorRenderer:
             self.card_w, self.card_h,
             self.font_card_cat, self.font_card_row, self.font_card_row_sm,
             hs_dir, f["bold"],
-            winner_rgb=_hex(cfg.winner_color),
-            loser_rgb=_hex(cfg.loser_color),
+            winner_rgb=_hex(cfg.winner_bg),
+            loser_rgb=_hex(cfg.other_bg),
             tie_rgb=_hex(cfg.runner_up_color),
+            cat_bg=_hex(cfg.category_bg),
+            cat_text_c=_hex(cfg.category_text_color),
+            winner_text_c=_hex(cfg.winner_text_color),
+            other_text_c=_hex(cfg.other_text_color),
+            headshot_bg=_hex(cfg.headshot_bg),
+            border_c=_hex(cfg.card_border_color),
         )
 
         # Order categories.

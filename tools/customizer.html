@@ -465,6 +465,46 @@ a { color:var(--accent2); }
       </div>
 
       <div class="section">
+        <div class="section-title">Card Style</div>
+        <div class="field"><label>Category bar bg</label>
+          <div class="color-row"><input type="color" id="compCatBg" value="#f0f0f0" oninput="updateComp()"></div>
+        </div>
+        <div class="field"><label>Category text color</label>
+          <div class="color-row"><input type="color" id="compCatText" value="#000000" oninput="updateComp()"></div>
+        </div>
+        <div class="field"><label>Category font size <span class="range-val" id="compCatFsVal">22</span></label>
+          <input type="range" id="compCatFs" min="16" max="32" value="22" oninput="document.getElementById('compCatFsVal').textContent=this.value;updateComp()">
+        </div>
+        <div class="row">
+          <div class="field"><label>Winner bg</label>
+            <div class="color-row"><input type="color" id="compWinBg" value="#CC0000" oninput="updateComp()"></div>
+          </div>
+          <div class="field"><label>Winner text</label>
+            <div class="color-row"><input type="color" id="compWinText" value="#ffffff" oninput="updateComp()"></div>
+          </div>
+        </div>
+        <div class="field"><label>Winner font size <span class="range-val" id="compWinFsVal">24</span></label>
+          <input type="range" id="compWinFs" min="16" max="32" value="24" oninput="document.getElementById('compWinFsVal').textContent=this.value;updateComp()">
+        </div>
+        <div class="row">
+          <div class="field"><label>Other bg</label>
+            <div class="color-row"><input type="color" id="compOtherBg" value="#2a2a2a" oninput="updateComp()"></div>
+          </div>
+          <div class="field"><label>Other text</label>
+            <div class="color-row"><input type="color" id="compOtherText" value="#ffffff" oninput="updateComp()"></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Headshot bg</label>
+            <div class="color-row"><input type="color" id="compHsBg" value="#0097a7" oninput="updateComp()"></div>
+          </div>
+          <div class="field"><label>Card border</label>
+            <div class="color-row"><input type="color" id="compBorderC" value="#333333" oninput="updateComp()"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
         <div class="section-title">Video Settings</div>
         <div class="field"><label>Preview Format</label>
           <select id="compPreset" onchange="updateComp()">
@@ -1515,6 +1555,17 @@ function collectCompConfig() {
     lowest_is_better: [...compLIB],
     player_renames: Object.keys(compPlayerRenames).length ? compPlayerRenames : undefined,
     category_renames: Object.keys(compCategoryRenames).length ? compCategoryRenames : undefined,
+    category_bg: document.getElementById('compCatBg').value,
+    category_text_color: document.getElementById('compCatText').value,
+    category_font_size: parseInt(document.getElementById('compCatFs').value),
+    winner_bg: document.getElementById('compWinBg').value,
+    winner_text_color: document.getElementById('compWinText').value,
+    winner_font_size: parseInt(document.getElementById('compWinFs').value),
+    other_bg: document.getElementById('compOtherBg').value,
+    other_text_color: document.getElementById('compOtherText').value,
+    other_font_size: parseInt(document.getElementById('compWinFs').value),
+    headshot_bg: document.getElementById('compHsBg').value,
+    card_border_color: document.getElementById('compBorderC').value,
   };
 }
 
