@@ -146,17 +146,19 @@ class CardBuilder:
             if path:
                 try:
                     raw = Image.open(str(path)).convert("RGBA")
-                    # Cover-fill: scale by the LARGER factor so image
-                    # fills every pixel of the target with no gaps.
-                    rw, rh = raw.size
-                    sc = max(width / rw, height / rh)
-                    nw = int(rw * sc)
-                    nh = int(rh * sc)
+                    # Scale by width only — preserve aspect ratio.
+                    sc = width / raw.width
+                    nw = width
+                    nh = int(raw.height * sc)
                     raw = raw.resize((nw, nh), Image.LANCZOS)
-                    # Center-crop to exact target size.
-                    left = (nw - width) // 2
-                    top = (nh - height) // 2
-                    raw = raw.crop((left, top, left + width, top + height))
+                    if nh >= height:
+                        # Too tall: crop from bottom (keep top/face).
+                        raw = raw.crop((0, 0, nw, height))
+                    else:
+                        # Shorter than target: place at top, teal fills below.
+                        result = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+                        result.paste(raw, (0, 0), raw)
+                        raw = result
                     hs = raw
                 except Exception:
                     pass
@@ -338,25 +340,34 @@ class ConveyorRenderer:
         fps = self.cfg.fps
         n = len(self.card_images)
         ppf = self.card_stride / (self._scroll_speed * fps)
-        total_scroll = self.W + n * self.card_stride
-        scroll_frames = int(total_scroll / ppf)
-        intro = int(2.0 * fps)
+        # Start: first card centered. End: last card centered.
+        center_x = self.W // 2 - self.card_w // 2
+        # Initial offset is negative so first card is at center_x.
+        # Card ci position: cx = -offset + ci * card_stride
+        # For first card centered: -offset = center_x → offset = -center_x
+        start_offset = -center_x
+        end_offset = (n - 1) * self.card_stride - center_x
+        scroll_distance = end_offset - start_offset
+        scroll_frames = max(1, int(scroll_distance / ppf))
         outro = int(3.0 * fps)
         return {
-            "ppf": ppf, "intro": intro, "scroll": scroll_frames,
-            "outro": outro, "total": intro + scroll_frames + outro,
+            "ppf": ppf,
+            "start_offset": start_offset,
+            "end_offset": end_offset,
+            "scroll": scroll_frames,
+            "outro": outro,
+            "total": scroll_frames + outro,
         }
 
     def render_frame(self, fi: int, t: dict) -> Image.Image:
         img = self._bg.copy()
-        if fi < t["intro"]:
-            return img
-        scroll_fi = fi - t["intro"]
-        if scroll_fi > t["scroll"]:
-            scroll_fi = t["scroll"]
-        offset = scroll_fi * t["ppf"]
+        # Determine current scroll offset.
+        if fi < t["scroll"]:
+            offset = t["start_offset"] + fi * t["ppf"]
+        else:
+            offset = t["end_offset"]
         for ci, cimg in enumerate(self.card_images):
-            cx = int(self.W - offset + ci * self.card_stride)
+            cx = int(-offset + ci * self.card_stride)
             if cx + self.card_w < 0 or cx > self.W:
                 continue
             img.paste(cimg, (cx, self.card_top), cimg)
