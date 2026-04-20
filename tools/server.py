@@ -66,6 +66,17 @@ def _run_pipeline_multi(job_id: str, base_cfg: Config, input_path: str,
         q.put({"event": "status", "data": "Normalizing..."})
         ndf = normalize(df)
 
+        # Auto-detect decimal precision if not explicitly set.
+        if base_cfg.value_decimals == -1:
+            max_dp = 0
+            for v in ndf["value"].dropna():
+                s = f"{v:.10f}".rstrip("0")
+                if "." in s:
+                    dp = len(s.split(".")[1])
+                    max_dp = max(max_dp, dp)
+            base_cfg.value_decimals = min(max_dp, 3)
+        print(f"[server] value_decimals = {base_cfg.value_decimals}")
+
         q.put({"event": "status", "data": "Building keyframes..."})
         kfs = build_keyframes(ndf, base_cfg.top_n)
 
@@ -446,7 +457,6 @@ class Handler(SimpleHTTPRequestHandler):
                     headshot_dir=str(ASSETS_DIR / "headshots"),
                     logo_dir=str(ASSETS_DIR / "logos"),
                     time_unit=config.get("time_unit", "auto"),
-                value_decimals=int(config.get("value_decimals", -1)),
                     value_decimals=int(config.get("value_decimals", -1)),
                 )
 

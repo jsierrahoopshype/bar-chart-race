@@ -905,6 +905,7 @@ class FrameRenderer:
         # Value format string based on detected/configured decimal places.
         dp = max(0, min(cfg.value_decimals, 3)) if cfg.value_decimals >= 0 else 0
         self._val_fmt = f",.{dp}f"
+        print(f"[render] value_decimals={cfg.value_decimals}, _val_fmt={self._val_fmt}")
         self.preset: VideoPreset = cfg.get_preset()
         self.W = self.preset.width
         self.H = self.preset.height
