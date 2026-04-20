@@ -446,6 +446,8 @@ class Handler(SimpleHTTPRequestHandler):
                     headshot_dir=str(ASSETS_DIR / "headshots"),
                     logo_dir=str(ASSETS_DIR / "logos"),
                     time_unit=config.get("time_unit", "auto"),
+                value_decimals=int(config.get("value_decimals", -1)),
+                    value_decimals=int(config.get("value_decimals", -1)),
                 )
 
                 renderer = FrameRenderer(cfg)
@@ -545,6 +547,7 @@ class Handler(SimpleHTTPRequestHandler):
                 headshot_dir=str(ASSETS_DIR / "headshots"),
                 logo_dir=str(ASSETS_DIR / "logos"),
                 time_unit=config.get("time_unit", "auto"),
+                value_decimals=int(config.get("value_decimals", -1)),
             )
 
             job_id = uuid.uuid4().hex[:12]

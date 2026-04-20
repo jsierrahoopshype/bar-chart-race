@@ -902,6 +902,9 @@ class FrameRenderer:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
         self.theme: Theme = get_theme(cfg.theme)
+        # Value format string based on detected/configured decimal places.
+        dp = max(0, min(cfg.value_decimals, 3)) if cfg.value_decimals >= 0 else 0
+        self._val_fmt = f",.{dp}f"
         self.preset: VideoPreset = cfg.get_preset()
         self.W = self.preset.width
         self.H = self.preset.height
@@ -1309,7 +1312,7 @@ class FrameRenderer:
                 name_text = name_text.title()
             tw, th_h = _text_size(draw, name_text, self.font_name)
 
-            val_text = f"{bar.value:,.0f}{th.value_suffix}"
+            val_text = f"{bar.value:{self._val_fmt}}{th.value_suffix}"
             vw, vh = _text_size(draw, val_text, self.font_value)
 
             label_pos = th.label_position

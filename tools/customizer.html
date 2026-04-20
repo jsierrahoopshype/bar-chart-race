@@ -329,6 +329,15 @@ a { color:var(--accent2); }
         </div>
       </div>
       <div class="field"><label>Value Suffix</label><input type="text" id="valueSuffix" value="" placeholder="e.g. PTS" oninput="update()"></div>
+      <div class="field"><label>Decimal Places</label>
+        <select id="valueDecimals" onchange="update()">
+          <option value="-1" selected>Auto</option>
+          <option value="0">0 (1,234)</option>
+          <option value="1">1 (12.5)</option>
+          <option value="2">2 (3.14)</option>
+          <option value="3">3 (0.834)</option>
+        </select>
+      </div>
       <div class="field"><label>Label Position</label>
         <select id="labelPosition" onchange="update()">
           <option value="outside">Outside</option>
@@ -924,6 +933,7 @@ async function fetchPreview() {
       subtitle: getVal('subtitle'),
       watermark: getVal('watermark'),
       time_unit: getVal('timeUnit'),
+      value_decimals: parseInt(getVal('valueDecimals')),
       overrides: collectOverrides(),
     };
 

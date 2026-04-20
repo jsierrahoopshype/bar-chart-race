@@ -63,6 +63,18 @@ def run(cfg: Config) -> None:
 
     # 3. Animate (build keyframes + interpolate)
     sys.stderr.write("Building animation frames...\n")
+
+    # Auto-detect decimal precision from the value column.
+    if cfg.value_decimals == -1:
+        max_dp = 0
+        for v in df["value"].dropna():
+            s = f"{v:.10f}".rstrip("0")
+            if "." in s:
+                dp = len(s.split(".")[1])
+                max_dp = max(max_dp, dp)
+        cfg.value_decimals = min(max_dp, 3)
+        sys.stderr.write(f"  Auto-detected {cfg.value_decimals} decimal places\n")
+
     keyframes = build_keyframes(df, top_n=cfg.top_n)
 
     body_frames = int(cfg.fps * cfg.duration_sec)

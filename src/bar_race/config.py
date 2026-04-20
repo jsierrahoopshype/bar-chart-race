@@ -198,6 +198,9 @@ class Config:
     # --- time unit for tenure column ----------------------------------------
     time_unit: str = "auto"  # "auto", "years", "seasons", "games", "days", "weeks", "months"
 
+    # --- value display --------------------------------------------------------
+    value_decimals: int = -1  # -1 = auto-detect from data; 0-3 = fixed
+
     def __post_init__(self) -> None:
         fonts = default_fonts()
         if not self.font_bold:
