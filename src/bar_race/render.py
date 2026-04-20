@@ -905,6 +905,7 @@ class FrameRenderer:
         # Value format string based on detected/configured decimal places.
         dp = max(0, min(cfg.value_decimals, 3)) if cfg.value_decimals >= 0 else 0
         self._val_fmt = f",.{dp}f"
+        self._logged_val = False
         print(f"[render] value_decimals={cfg.value_decimals}, _val_fmt={self._val_fmt}")
         self.preset: VideoPreset = cfg.get_preset()
         self.W = self.preset.width
@@ -1314,6 +1315,9 @@ class FrameRenderer:
             tw, th_h = _text_size(draw, name_text, self.font_name)
 
             val_text = f"{bar.value:{self._val_fmt}}{th.value_suffix}"
+            if not self._logged_val:
+                print(f"[render] FIRST BAR: value={bar.value}, type={type(bar.value).__name__}, formatted={val_text}")
+                self._logged_val = True
             vw, vh = _text_size(draw, val_text, self.font_value)
 
             label_pos = th.label_position
@@ -1485,8 +1489,6 @@ class FrameRenderer:
                               fill=(*title_c, 240), font=title_font)
                     title_bottom = top_margin + max(font_size, 14)
 
-                print(f"[render] Title font size: {font_size}, title width: {ttw}, "
-                      f"available: {avail_w}, frame: {self.W}x{self.H}")
             else:
                 title_bottom = top_margin + 14
 
@@ -1495,7 +1497,6 @@ class FrameRenderer:
                 final_title_fs = font_size if (self.cfg.title and font_size > 0) else 26
                 sub_size = max(10, int(final_title_fs * 0.55))
                 sub_font = _load_font(self._medium_path, sub_size)
-                print(f"[render] reels subtitle: title_fs={final_title_fs}, sub_size={sub_size}")
                 sub_y = title_bottom + 5
                 draw.text((title_text_x, sub_y), self.cfg.subtitle,
                           fill=(*text2_c, 200), font=sub_font)
@@ -1544,7 +1545,6 @@ class FrameRenderer:
                     sub_size = int(sub_size * 0.9)
                     sub_font = _load_font(self._medium_path, sub_size)
                     stw = _text_size(draw, self.cfg.subtitle, sub_font)[0]
-                print(f"[render] subtitle: title_fs={final_title_fs}, sub_size={sub_size}")
                 draw.text(
                     (title_x + logo_offset,
                      int(self.H * 0.04 + 52 * th.title_scale * (self.H / 1080))),
