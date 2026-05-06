@@ -458,6 +458,7 @@ class Handler(SimpleHTTPRequestHandler):
                     logo_dir=str(ASSETS_DIR / "logos"),
                     time_unit=config.get("time_unit", "auto"),
                     value_decimals=int(config.get("value_decimals", -1)),
+                    entity_type=config.get("entity_type", "auto"),
                 )
 
                 renderer = FrameRenderer(cfg)

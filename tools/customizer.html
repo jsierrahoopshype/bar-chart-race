@@ -338,6 +338,13 @@ a { color:var(--accent2); }
           <option value="3">3 (0.834)</option>
         </select>
       </div>
+      <div class="field"><label>Entity Type</label>
+        <select id="entityType" onchange="update()">
+          <option value="auto" selected>Auto-detect</option>
+          <option value="player">Players (headshots)</option>
+          <option value="team">Teams (logos)</option>
+        </select>
+      </div>
       <div class="field"><label>Label Position</label>
         <select id="labelPosition" onchange="update()">
           <option value="outside">Outside</option>
@@ -934,6 +941,7 @@ async function fetchPreview() {
       watermark: getVal('watermark'),
       time_unit: getVal('timeUnit'),
       value_decimals: parseInt(getVal('valueDecimals')),
+      entity_type: getVal('entityType'),
       overrides: collectOverrides(),
     };
 

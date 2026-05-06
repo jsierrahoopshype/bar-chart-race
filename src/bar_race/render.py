@@ -28,6 +28,7 @@ from bar_race.config import (
     VideoPreset,
 )
 from bar_race.player_teams import PLAYER_TEAM_MAP
+from bar_race.team_lookup import lookup_team, detect_team_data
 from bar_race.themes import Theme, get_theme
 
 # ---------------------------------------------------------------------------
@@ -145,6 +146,11 @@ def _color_for_bar(bar: BarState, use_team: bool) -> str:
     # 1. Use team from data if available.
     if use_team and bar.team and bar.team in NBA_TEAM_COLORS:
         color = NBA_TEAM_COLORS[bar.team]
+    # 1b. Try looking up player name as a team name.
+    if color is None:
+        abbrev = lookup_team(bar.player)
+        if abbrev and abbrev in NBA_TEAM_COLORS:
+            color = NBA_TEAM_COLORS[abbrev]
     # 2. Fall back to iconic team map.
     if color is None and bar.player in PLAYER_TEAM_MAP:
         team = PLAYER_TEAM_MAP[bar.player]
@@ -907,6 +913,14 @@ class FrameRenderer:
         self._val_fmt = f",.{dp}f"
         self._logged_val = False
         print(f"[render] value_decimals={cfg.value_decimals}, _val_fmt={self._val_fmt}")
+        # Team mode: will be resolved on first render if "auto".
+        self._team_mode: bool | None = (
+            True if cfg.entity_type == "team"
+            else False if cfg.entity_type == "player"
+            else None  # auto — detect on first render
+        )
+        self._logo_cache: dict[str, Optional[Image.Image]] = {}
+        self._logo_dir = cfg.logo_dir or ""
         self.preset: VideoPreset = cfg.get_preset()
         self.W = self.preset.width
         self.H = self.preset.height
@@ -1081,11 +1095,37 @@ class FrameRenderer:
                 fill=(*text2_c, int(alpha * 0.7)), font=self.font_rank,
             )
 
+    def _load_team_logo(self, team_abbrev: str, size: int) -> Optional[Image.Image]:
+        """Load and cache a team logo from assets/logos/."""
+        key = f"{team_abbrev}_{size}"
+        if key in self._logo_cache:
+            return self._logo_cache[key]
+        logo = None
+        if self._logo_dir:
+            logo_path = Path(self._logo_dir) / f"{team_abbrev}.png"
+            if logo_path.is_file():
+                try:
+                    raw = Image.open(str(logo_path)).convert("RGBA")
+                    raw = raw.resize((size, size), Image.LANCZOS)
+                    logo = raw
+                except Exception:
+                    pass
+        self._logo_cache[key] = logo
+        return logo
+
     # -- public API --------------------------------------------------------
 
     def render(self, state: FrameState) -> Image.Image:
         """Return an RGBA :class:`PIL.Image.Image` for the given frame."""
         th = self.theme
+
+        # Auto-detect team mode on first render.
+        if self._team_mode is None:
+            names = [b.player for b in state.bars]
+            self._team_mode = detect_team_data(names)
+            if self._team_mode:
+                print("[render] Team mode detected — using team logos")
+
         img = self._bg.copy()
         if th.noise:
             img = _apply_noise(img)
@@ -1260,15 +1300,23 @@ class FrameRenderer:
                     img.paste(fade, (x1, y1), fade)
                     draw = ImageDraw.Draw(img)
 
-            # --- headshot -------------------------------------------------
+            # --- headshot / team logo --------------------------------------
             hs_right_edge = 0  # track right edge for "inside" label layout
-            if self.cfg.headshot_dir:
-                hs_size = max(16, bar_h - 6)
+            hs = None
+            hs_size = max(16, bar_h - 6)
+            if self._team_mode:
+                # Team mode: load logo from assets/logos/.
+                abbrev = lookup_team(bar.player)
+                if not abbrev and bar.team:
+                    abbrev = bar.team
+                if abbrev:
+                    hs = self._load_team_logo(abbrev, hs_size)
+            elif self.cfg.headshot_dir:
                 hs = _load_headshot(
                     bar.player, self.cfg.headshot_dir, hs_size, th,
                     team_color=base_rgb, bar_h=bar_h,
                 )
-                if hs is not None:
+            if hs is not None:
                     hs_w, hs_h = hs.size
 
                     if th.headshot_style == "rectangle":

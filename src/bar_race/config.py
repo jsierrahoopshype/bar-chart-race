@@ -201,6 +201,9 @@ class Config:
     # --- value display --------------------------------------------------------
     value_decimals: int = -1  # -1 = auto-detect from data; 0-3 = fixed
 
+    # --- entity type ----------------------------------------------------------
+    entity_type: str = "auto"  # "auto", "player", "team"
+
     def __post_init__(self) -> None:
         fonts = default_fonts()
         if not self.font_bold:
