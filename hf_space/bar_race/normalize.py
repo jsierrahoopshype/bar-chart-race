@@ -28,7 +28,7 @@ import pandas as pd
 
 # Heuristic column-name sets that identify long (tidy) format.
 _DATE_NAMES = {"date", "game_date", "period", "month", "year", "week", "day", "season"}
-_PLAYER_NAMES = {"player", "name", "athlete", "player_name"}
+_PLAYER_NAMES = {"player", "name", "athlete", "player_name", "team", "country", "city", "entity"}
 _VALUE_NAMES = {"value", "stat", "score", "pts", "points", "count", "total"}
 
 _LONG_REQUIRED = (_DATE_NAMES, _PLAYER_NAMES, _VALUE_NAMES)
