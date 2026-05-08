@@ -68,6 +68,26 @@ def lookup_team(name: str) -> str | None:
     return _LOWER_MAP.get(name.strip().lower())
 
 
+TEAM_SHORT_NAMES: dict[str, str] = {
+    "ATL": "Hawks", "BOS": "Celtics", "BKN": "Nets", "CHA": "Hornets",
+    "CHI": "Bulls", "CLE": "Cavaliers", "DAL": "Mavericks", "DEN": "Nuggets",
+    "DET": "Pistons", "GSW": "Warriors", "HOU": "Rockets", "IND": "Pacers",
+    "LAC": "Clippers", "LAL": "Lakers", "MEM": "Grizzlies", "MIA": "Heat",
+    "MIL": "Bucks", "MIN": "Timberwolves", "NOP": "Pelicans", "NYK": "Knicks",
+    "OKC": "Thunder", "ORL": "Magic", "PHI": "76ers", "PHX": "Suns",
+    "POR": "Trail Blazers", "SAC": "Kings", "SAS": "Spurs", "TOR": "Raptors",
+    "UTA": "Jazz", "WAS": "Wizards",
+}
+
+
+def get_short_name(name: str) -> str:
+    """Return the short franchise name (e.g. 'Lakers') for a team name."""
+    abbrev = lookup_team(name)
+    if abbrev and abbrev in TEAM_SHORT_NAMES:
+        return TEAM_SHORT_NAMES[abbrev]
+    return name
+
+
 def is_team_name(name: str) -> bool:
     """Return True if *name* matches any known team."""
     return name.strip().lower() in _LOWER_MAP

@@ -28,7 +28,7 @@ from bar_race.config import (
     VideoPreset,
 )
 from bar_race.player_teams import PLAYER_TEAM_MAP
-from bar_race.team_lookup import lookup_team, detect_team_data
+from bar_race.team_lookup import lookup_team, detect_team_data, get_short_name
 from bar_race.themes import Theme, get_theme
 
 # ---------------------------------------------------------------------------
@@ -1101,13 +1101,19 @@ class FrameRenderer:
         if key in self._logo_cache:
             return self._logo_cache[key]
         logo = None
+        # Try configured logo_dir first, then PROJECT_ROOT/assets/logos/.
+        search_dirs = []
         if self._logo_dir:
-            logo_path = Path(self._logo_dir) / f"{team_abbrev}.png"
-            if logo_path.is_file():
+            search_dirs.append(self._logo_dir)
+        search_dirs.append(os.path.join(PROJECT_ROOT, "assets", "logos"))
+        for d in search_dirs:
+            logo_path = os.path.join(d, f"{team_abbrev}.png")
+            if os.path.isfile(logo_path):
                 try:
-                    raw = Image.open(str(logo_path)).convert("RGBA")
+                    raw = Image.open(logo_path).convert("RGBA")
                     raw = raw.resize((size, size), Image.LANCZOS)
                     logo = raw
+                    break
                 except Exception:
                     pass
         self._logo_cache[key] = logo
@@ -1355,7 +1361,7 @@ class FrameRenderer:
                     draw = ImageDraw.Draw(img)
 
             # --- prepare text ---------------------------------------------
-            name_text = bar.player
+            name_text = get_short_name(bar.player) if self._team_mode else bar.player
             if th.label_case == "upper":
                 name_text = name_text.upper()
             elif th.label_case == "title":
