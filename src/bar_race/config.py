@@ -200,6 +200,9 @@ class Config:
 
     # --- value display --------------------------------------------------------
     value_decimals: int = -1  # -1 = auto-detect from data; 0-3 = fixed
+    # Optional unit suffix appended to bar values (e.g. "%"). When None, the
+    # theme's value_suffix is used, so existing renders are byte-identical.
+    value_suffix: Optional[str] = None
 
     # --- entity type ----------------------------------------------------------
     entity_type: str = "auto"  # "auto", "player", "team"
