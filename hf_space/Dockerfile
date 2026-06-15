@@ -33,6 +33,15 @@ COPY --chown=user app.py .
 # Copy headshot assets.
 COPY --chown=user assets/headshots/ assets/headshots/
 
+# Copy theme assets (background, fonts, logo) to the path render.py resolves
+# from. PROJECT_ROOT = dirname(dirname(dirname(__file__))), which is "/" in this
+# image (the package lives at /app/bar_race/render.py), so themes such as
+# hoopshype-official / hoopshype-official-gradient look up their bg_image,
+# font_custom_dir and logo_path under /assets/... — NOT /app/assets/...
+COPY --chown=user assets/backgrounds/ /assets/backgrounds/
+COPY --chown=user assets/fonts/ /assets/fonts/
+COPY --chown=user assets/logos/ /assets/logos/
+
 EXPOSE 7860
 
 CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:7860", "--timeout", "300", "--workers", "1", "--threads", "4"]
