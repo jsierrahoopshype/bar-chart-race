@@ -121,7 +121,8 @@ a:hover { color: var(--accent-hover); }
   justify-content: center;
 }
 .gsheet-box label { font-size: 0.85rem; color: var(--text2); margin-bottom: 8px; display: block; }
-.gsheet-box input {
+.gsheet-box input,
+.gsheet-box select {
   width: 100%;
   padding: 10px 14px;
   background: var(--bg);
@@ -131,7 +132,8 @@ a:hover { color: var(--accent-hover); }
   font-size: 0.95rem;
   outline: none;
 }
-.gsheet-box input:focus { border-color: var(--accent); }
+.gsheet-box input:focus,
+.gsheet-box select:focus { border-color: var(--accent); }
 .gsheet-box .hint { font-size: 0.75rem; color: var(--text2); margin-top: 6px; }
 .or-divider {
   display: none;
@@ -419,6 +421,16 @@ a:hover { color: var(--accent-hover); }
         <div class="hint">Sheet must be publicly accessible (Share &rarr; Anyone with link)</div>
       </div>
     </div>
+
+    <div class="gsheet-box" style="margin-top:20px;">
+      <label for="polySelect">Polymarket NBA race</label>
+      <select id="polySelect" onchange="onPolySelect()">
+        <option value="">Loading races&hellip;</option>
+      </select>
+      <div class="hint">Implied-odds markets from Polymarket. Picking one sets the
+        theme &amp; percentage formatting and renders all three formats
+        (Reels, YouTube &amp; Square). Clear the selection to use a file or Sheet instead.</div>
+    </div>
   </div>
 
   <!-- Theme Picker -->
@@ -513,9 +525,12 @@ a:hover { color: var(--accent-hover); }
   <div class="result-section" id="resultSection">
     <div class="section-label">Done</div>
     <h2>Your Video is Ready</h2>
-    <video id="resultVideo" controls playsinline></video>
-    <br>
-    <button class="download-btn" id="downloadBtn" onclick="downloadVideo()">Download MP4</button>
+    <div id="singleResult">
+      <video id="resultVideo" controls playsinline></video>
+      <br>
+      <button class="download-btn" id="downloadBtn" onclick="downloadVideo()">Download MP4</button>
+    </div>
+    <div id="polyResults"></div>
   </div>
 
 </div>
@@ -530,10 +545,20 @@ a:hover { color: var(--accent-hover); }
 // ---------------------------------------------------------------------------
 const API_BASE = 'https://cdechoch-bar-chart-race.hf.space';  // HuggingFace Space API
 
+// Polymarket NBA "implied odds" races (static JSON on GitHub Pages).
+const POLY_BASE = 'https://jsierrahoopshype.github.io/nba-polymarket/data/race';
+// Default theme applied when a Polymarket race is selected (picker overrides).
+const POLY_THEME = 'hoopshype-official-gradient';
+// Polymarket races render in all three aspect ratios.
+const POLY_PRESETS = ['reels', 'youtube', 'square'];
+
 let themes = [];
 let currentTheme = 'midnight-premium';
 let uploadedFile = null;
 let videoBlobUrl = null;
+let polyRaces = [];
+let selectedPolyRace = null;
+let polyBlobUrls = [];
 
 // Sample bar data for theme thumbnails.
 const SAMPLE_BARS = [
@@ -582,6 +607,7 @@ function renderThemeGrid() {
   themes.forEach(t => {
     const card = document.createElement('div');
     card.className = 'theme-card' + (t.slug === currentTheme ? ' active' : '');
+    card.dataset.slug = t.slug;
 
     // Background gradient/solid.
     const colors = t.bg_colors || ['#0f0c29', '#302b63'];
@@ -651,9 +677,267 @@ function setPreset(btn) {
 }
 
 // ---------------------------------------------------------------------------
+// Polymarket NBA races
+// ---------------------------------------------------------------------------
+async function loadPolyRaces() {
+  const sel = document.getElementById('polySelect');
+  try {
+    const r = await fetch(POLY_BASE + '/index.json');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    // Accept either a bare array or an object wrapping a "races" array.
+    polyRaces = Array.isArray(data) ? data : (data.races || data.items || []);
+  } catch (e) {
+    console.warn('Could not load Polymarket races:', e.message);
+    polyRaces = [];
+  }
+
+  sel.innerHTML = '';
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = polyRaces.length
+    ? '— Select a race —'
+    : 'No races available';
+  sel.appendChild(blank);
+
+  polyRaces.forEach((race, i) => {
+    const opt = document.createElement('option');
+    opt.value = String(i);
+    const count = race.outcomeCount != null ? race.outcomeCount
+      : (Array.isArray(race.outcomes) ? race.outcomes.length : null);
+    const title = race.title || race.name || race.slug || ('Race ' + (i + 1));
+    opt.textContent = count != null ? `${title} (${count} outcomes)` : title;
+    sel.appendChild(opt);
+  });
+}
+
+function onPolySelect() {
+  const sel = document.getElementById('polySelect');
+  const val = sel.value;
+  if (val === '') {
+    selectedPolyRace = null;
+    return;
+  }
+  selectedPolyRace = polyRaces[parseInt(val, 10)] || null;
+  if (!selectedPolyRace) return;
+
+  // Default to the Polymarket theme; the picker can still override afterwards.
+  currentTheme = POLY_THEME;
+  document.querySelectorAll('.theme-card').forEach(c => {
+    c.classList.toggle('active', c.dataset.slug === POLY_THEME);
+  });
+
+  // Prefill title + subtitle.
+  const title = selectedPolyRace.title || selectedPolyRace.name || '';
+  document.getElementById('title').value = title;
+  document.getElementById('subtitle').value = 'Implied odds over time';
+}
+
+// Slug for a race: explicit field, else derived from the title.
+function polyRaceSlug(race) {
+  if (race.slug) return race.slug;
+  if (race.id) return race.id;
+  return String(race.title || race.name || '')
+    .toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+// Escape one CSV field (quote when it contains comma, quote, or newline).
+function csvField(v) {
+  const s = v == null ? '' : String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// Convert long-format [{date,player,value,team?}] rows into CSV text.
+function polyRowsToCsv(rows) {
+  const hasTeam = rows.some(r => r.team != null && r.team !== '');
+  const header = hasTeam ? ['date', 'player', 'value', 'team'] : ['date', 'player', 'value'];
+  const lines = [header.join(',')];
+  rows.forEach(r => {
+    const cells = [csvField(r.date), csvField(r.player), csvField(r.value)];
+    if (hasTeam) cells.push(csvField(r.team));
+    lines.push(cells.join(','));
+  });
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Video Generation
 // ---------------------------------------------------------------------------
 async function generateVideo() {
+  if (selectedPolyRace) {
+    return generatePolymarket();
+  }
+  return generateUpload();
+}
+
+// POST one render through the existing upload path; returns a Blob or throws.
+async function postRender(config, csvFile, timeoutMs) {
+  const formData = new FormData();
+  formData.append('config', JSON.stringify(config));
+  formData.append('file', csvFile);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(API_BASE + '/api/generate', {
+      method: 'POST', body: formData, signal: controller.signal,
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Server error' }));
+      throw new Error(err.error || ('HTTP ' + response.status));
+    }
+    return await response.blob();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function generatePolymarket() {
+  const btn = document.getElementById('generateBtn');
+  const progressArea = document.getElementById('progressArea');
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+  const errorText = document.getElementById('errorText');
+  const resultSection = document.getElementById('resultSection');
+
+  errorText.textContent = '';
+  resultSection.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  progressArea.style.display = 'block';
+  progressFill.style.width = '0%';
+  progressText.textContent = 'Fetching Polymarket data...';
+
+  try {
+    const race = selectedPolyRace;
+    const slug = polyRaceSlug(race);
+    const r = await fetch(`${POLY_BASE}/${slug}.json`);
+    if (!r.ok) throw new Error('Could not load race data (HTTP ' + r.status + ')');
+    const payload = await r.json();
+    const rows = Array.isArray(payload) ? payload : (payload.data || payload.rows || []);
+    if (!rows.length) throw new Error('Race data is empty.');
+
+    const csv = polyRowsToCsv(rows);
+    const csvFile = new File([csv], `${slug}.csv`, { type: 'text/csv' });
+
+    // Shared config — percentages, no bottom-left callouts.
+    const baseConfig = {
+      theme: currentTheme,
+      fps: document.getElementById('hqToggle').checked ? 60 : 30,
+      duration: parseInt(document.getElementById('duration').value),
+      top_n: parseInt(document.getElementById('topN').value),
+      title: document.getElementById('title').value,
+      subtitle: document.getElementById('subtitle').value,
+      watermark: document.getElementById('watermark').value,
+      value_decimals: 0,
+      value_suffix: '%',
+      show_reign_history: false,
+      show_tenure_leaderboard: false,
+      show_milestone_records: false,
+    };
+
+    // Reset previous poly results and prepare an (initially empty) results view.
+    polyBlobUrls.forEach(u => URL.revokeObjectURL(u));
+    polyBlobUrls = [];
+    initPolyResults();
+
+    let succeeded = 0;
+    const failed = [];
+
+    // Render each preset independently so one failure doesn't lose the rest;
+    // results appear incrementally as each completes.
+    for (let i = 0; i < POLY_PRESETS.length; i++) {
+      const preset = POLY_PRESETS[i];
+      const config = Object.assign({}, baseConfig, { preset });
+      // Retry the first preset once: the free Space sleeps when idle and the
+      // first request after a cold start often fails or is slow.
+      const maxAttempts = i === 0 ? 2 : 1;
+      let blob = null, lastErr = null;
+      for (let attempt = 1; attempt <= maxAttempts && !blob; attempt++) {
+        const waking = i === 0 && attempt === 2;
+        progressText.textContent = waking
+          ? 'The render server may be waking up — retrying…'
+          : `Rendering ${preset} (${i + 1}/${POLY_PRESETS.length})…`;
+        progressFill.style.width = `${Math.round((i / POLY_PRESETS.length) * 90)}%`;
+        try {
+          blob = await postRender(config, csvFile, 180000);
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        polyBlobUrls.push(url);
+        appendPolyResult({ preset, url, slug });
+        succeeded++;
+        resultSection.style.display = 'block';
+        if (succeeded === 1) resultSection.scrollIntoView({ behavior: 'smooth' });
+      } else {
+        const why = lastErr && lastErr.name === 'AbortError' ? 'timed out'
+          : (lastErr ? lastErr.message : 'failed');
+        failed.push(`${preset} (${why})`);
+      }
+    }
+
+    progressFill.style.width = '100%';
+    if (succeeded === 0) {
+      progressText.textContent = '';
+      errorText.textContent =
+        'No video could be rendered — the free render server may be asleep or '
+        + 'overloaded (it sleeps after idle and cold-starts slowly). Please wait a '
+        + 'moment and try again. Details: ' + failed.join('; ');
+    } else if (failed.length) {
+      progressText.textContent = `Done — ${succeeded}/${POLY_PRESETS.length} rendered.`;
+      errorText.textContent =
+        'Some formats did not render: ' + failed.join('; ')
+        + '. Re-run to retry them (the server is warm now).';
+    } else {
+      progressText.textContent = 'Complete!';
+    }
+
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      errorText.textContent = 'A render timed out. Try a shorter duration or lower quality.';
+    } else {
+      errorText.textContent = 'Error: ' + e.message;
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate Video';
+  }
+}
+
+function initPolyResults() {
+  document.getElementById('singleResult').style.display = 'none';
+  document.getElementById('polyResults').innerHTML = '';
+}
+
+function appendPolyResult(res) {
+  const container = document.getElementById('polyResults');
+  const block = document.createElement('div');
+  block.style.marginBottom = '24px';
+  const heading = document.createElement('h3');
+  heading.textContent = res.preset.charAt(0).toUpperCase() + res.preset.slice(1);
+  heading.style.marginBottom = '8px';
+  const video = document.createElement('video');
+  video.src = res.url;
+  video.controls = true;
+  video.playsInline = true;
+  const link = document.createElement('a');
+  link.href = res.url;
+  link.download = `${res.slug}-${res.preset}.mp4`;
+  link.className = 'download-btn';
+  link.textContent = `Download ${res.preset} MP4`;
+  link.style.display = 'inline-block';
+  link.style.marginTop = '8px';
+  block.appendChild(heading);
+  block.appendChild(video);
+  block.appendChild(document.createElement('br'));
+  block.appendChild(link);
+  container.appendChild(block);
+}
+
+async function generateUpload() {
   const btn = document.getElementById('generateBtn');
   const progressArea = document.getElementById('progressArea');
   const progressFill = document.getElementById('progressFill');
@@ -735,7 +1019,9 @@ async function generateVideo() {
     progressFill.style.width = '100%';
     progressText.textContent = 'Complete!';
 
-    // Show result.
+    // Show result (single-video view).
+    document.getElementById('polyResults').innerHTML = '';
+    document.getElementById('singleResult').style.display = '';
     const video = document.getElementById('resultVideo');
     video.src = videoBlobUrl;
     resultSection.style.display = 'block';
@@ -766,6 +1052,7 @@ function downloadVideo() {
 // Init
 // ---------------------------------------------------------------------------
 loadThemes();
+loadPolyRaces();
 </script>
 </body>
 </html>

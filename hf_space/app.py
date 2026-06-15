@@ -138,6 +138,14 @@ def generate():
             subtitle=config.get("subtitle", ""),
             watermark=config.get("watermark", ""),
             headshot_dir=str(HEADSHOT_DIR),
+            # Value formatting — defaults preserve existing behavior when absent:
+            #   value_decimals -1 = auto-detect, value_suffix None = use theme.
+            value_decimals=int(config.get("value_decimals", -1)),
+            value_suffix=config.get("value_suffix"),
+            # Bottom-left stat callouts — default True (current behavior).
+            show_reign_history=bool(config.get("show_reign_history", True)),
+            show_tenure_leaderboard=bool(config.get("show_tenure_leaderboard", True)),
+            show_milestone_records=bool(config.get("show_milestone_records", True)),
         )
 
         # Run pipeline (synchronous — HF Spaces have generous timeouts).

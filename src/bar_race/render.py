@@ -911,6 +911,12 @@ class FrameRenderer:
         # Value format string based on detected/configured decimal places.
         dp = max(0, min(cfg.value_decimals, 3)) if cfg.value_decimals >= 0 else 0
         self._val_fmt = f",.{dp}f"
+        # Config value_suffix overrides the theme's when set; None falls back
+        # to the theme so existing renders are byte-identical.
+        self._val_suffix = (
+            cfg.value_suffix if cfg.value_suffix is not None
+            else self.theme.value_suffix
+        )
         self._logged_val = False
         print(f"[render] value_decimals={cfg.value_decimals}, _val_fmt={self._val_fmt}")
         # Team mode: will be resolved on first render if "auto".
@@ -1368,7 +1374,7 @@ class FrameRenderer:
                 name_text = name_text.title()
             tw, th_h = _text_size(draw, name_text, self.font_name)
 
-            val_text = f"{bar.value:{self._val_fmt}}{th.value_suffix}"
+            val_text = f"{bar.value:{self._val_fmt}}{self._val_suffix}"
             if not self._logged_val:
                 print(f"[render] FIRST BAR: value={bar.value}, type={type(bar.value).__name__}, formatted={val_text}")
                 self._logged_val = True
