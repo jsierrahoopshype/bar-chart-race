@@ -770,6 +770,27 @@ async function generateVideo() {
   return generateUpload();
 }
 
+// POST one render through the existing upload path; returns a Blob or throws.
+async function postRender(config, csvFile, timeoutMs) {
+  const formData = new FormData();
+  formData.append('config', JSON.stringify(config));
+  formData.append('file', csvFile);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(API_BASE + '/api/generate', {
+      method: 'POST', body: formData, signal: controller.signal,
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Server error' }));
+      throw new Error(err.error || ('HTTP ' + response.status));
+    }
+    return await response.blob();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function generatePolymarket() {
   const btn = document.getElementById('generateBtn');
   const progressArea = document.getElementById('progressArea');
@@ -814,46 +835,65 @@ async function generatePolymarket() {
       show_milestone_records: false,
     };
 
-    // Reset previous poly results.
+    // Reset previous poly results and prepare an (initially empty) results view.
     polyBlobUrls.forEach(u => URL.revokeObjectURL(u));
     polyBlobUrls = [];
-    const results = [];
+    initPolyResults();
 
+    let succeeded = 0;
+    const failed = [];
+
+    // Render each preset independently so one failure doesn't lose the rest;
+    // results appear incrementally as each completes.
     for (let i = 0; i < POLY_PRESETS.length; i++) {
       const preset = POLY_PRESETS[i];
-      progressText.textContent = `Rendering ${preset} (${i + 1}/${POLY_PRESETS.length})...`;
-      progressFill.style.width = `${Math.round((i / POLY_PRESETS.length) * 90)}%`;
-
       const config = Object.assign({}, baseConfig, { preset });
-      const formData = new FormData();
-      formData.append('config', JSON.stringify(config));
-      formData.append('file', csvFile);
+      // Retry the first preset once: the free Space sleeps when idle and the
+      // first request after a cold start often fails or is slow.
+      const maxAttempts = i === 0 ? 2 : 1;
+      let blob = null, lastErr = null;
+      for (let attempt = 1; attempt <= maxAttempts && !blob; attempt++) {
+        const waking = i === 0 && attempt === 2;
+        progressText.textContent = waking
+          ? 'The render server may be waking up — retrying…'
+          : `Rendering ${preset} (${i + 1}/${POLY_PRESETS.length})…`;
+        progressFill.style.width = `${Math.round((i / POLY_PRESETS.length) * 90)}%`;
+        try {
+          blob = await postRender(config, csvFile, 180000);
+        } catch (err) {
+          lastErr = err;
+        }
+      }
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 180000);
-      let response;
-      try {
-        response = await fetch(API_BASE + '/api/generate', {
-          method: 'POST', body: formData, signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeout);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        polyBlobUrls.push(url);
+        appendPolyResult({ preset, url, slug });
+        succeeded++;
+        resultSection.style.display = 'block';
+        if (succeeded === 1) resultSection.scrollIntoView({ behavior: 'smooth' });
+      } else {
+        const why = lastErr && lastErr.name === 'AbortError' ? 'timed out'
+          : (lastErr ? lastErr.message : 'failed');
+        failed.push(`${preset} (${why})`);
       }
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({ error: 'Server error' }));
-        throw new Error(`${preset}: ${err.error || 'HTTP ' + response.status}`);
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      polyBlobUrls.push(url);
-      results.push({ preset, url, slug });
     }
 
     progressFill.style.width = '100%';
-    progressText.textContent = 'Complete!';
-    renderPolyResults(results);
-    resultSection.style.display = 'block';
-    resultSection.scrollIntoView({ behavior: 'smooth' });
+    if (succeeded === 0) {
+      progressText.textContent = '';
+      errorText.textContent =
+        'No video could be rendered — the free render server may be asleep or '
+        + 'overloaded (it sleeps after idle and cold-starts slowly). Please wait a '
+        + 'moment and try again. Details: ' + failed.join('; ');
+    } else if (failed.length) {
+      progressText.textContent = `Done — ${succeeded}/${POLY_PRESETS.length} rendered.`;
+      errorText.textContent =
+        'Some formats did not render: ' + failed.join('; ')
+        + '. Re-run to retry them (the server is warm now).';
+    } else {
+      progressText.textContent = 'Complete!';
+    }
 
   } catch (e) {
     if (e.name === 'AbortError') {
@@ -867,33 +907,34 @@ async function generatePolymarket() {
   }
 }
 
-function renderPolyResults(results) {
+function initPolyResults() {
   document.getElementById('singleResult').style.display = 'none';
+  document.getElementById('polyResults').innerHTML = '';
+}
+
+function appendPolyResult(res) {
   const container = document.getElementById('polyResults');
-  container.innerHTML = '';
-  results.forEach(res => {
-    const block = document.createElement('div');
-    block.style.marginBottom = '24px';
-    const heading = document.createElement('h3');
-    heading.textContent = res.preset.charAt(0).toUpperCase() + res.preset.slice(1);
-    heading.style.marginBottom = '8px';
-    const video = document.createElement('video');
-    video.src = res.url;
-    video.controls = true;
-    video.playsInline = true;
-    const link = document.createElement('a');
-    link.href = res.url;
-    link.download = `${res.slug}-${res.preset}.mp4`;
-    link.className = 'download-btn';
-    link.textContent = `Download ${res.preset} MP4`;
-    link.style.display = 'inline-block';
-    link.style.marginTop = '8px';
-    block.appendChild(heading);
-    block.appendChild(video);
-    block.appendChild(document.createElement('br'));
-    block.appendChild(link);
-    container.appendChild(block);
-  });
+  const block = document.createElement('div');
+  block.style.marginBottom = '24px';
+  const heading = document.createElement('h3');
+  heading.textContent = res.preset.charAt(0).toUpperCase() + res.preset.slice(1);
+  heading.style.marginBottom = '8px';
+  const video = document.createElement('video');
+  video.src = res.url;
+  video.controls = true;
+  video.playsInline = true;
+  const link = document.createElement('a');
+  link.href = res.url;
+  link.download = `${res.slug}-${res.preset}.mp4`;
+  link.className = 'download-btn';
+  link.textContent = `Download ${res.preset} MP4`;
+  link.style.display = 'inline-block';
+  link.style.marginTop = '8px';
+  block.appendChild(heading);
+  block.appendChild(video);
+  block.appendChild(document.createElement('br'));
+  block.appendChild(link);
+  container.appendChild(block);
 }
 
 async function generateUpload() {
