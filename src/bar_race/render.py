@@ -260,7 +260,11 @@ def _resolve_font(family: str, weight: str) -> str:
 def _load_font(path: str, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     try:
         return ImageFont.truetype(path, size)
-    except (OSError, IOError):
+    except (OSError, IOError) as e:
+        # Definitive diagnostic: a present-but-unreadable file (e.g. a git-LFS
+        # pointer that never resolved) lands here and falls back to the tiny
+        # built-in bitmap font — which looks like a wrong, too-small typeface.
+        print(f"[render] FONT LOAD FAILED: {path!r} ({e}) -> PIL default bitmap")
         return ImageFont.load_default()
 
 
@@ -976,10 +980,17 @@ class FrameRenderer:
                     all_found = False
             # If not all custom fonts found, fall back to standard resolution.
             if not all_found:
+                missing = [fn for fn in _custom_map.values()
+                           if not (custom_dir / fn).is_file()]
+                print(f"[render] font_custom_dir {str(custom_dir)!r}: MISSING {missing} "
+                      f"-> falling back to default fonts (Poppins/system)")
                 bold_path = cfg.font_bold
                 medium_path = cfg.font_medium
                 regular_path = cfg.font_regular
                 light_path = cfg.font_light
+            else:
+                print(f"[render] font_custom_dir {str(custom_dir)!r}: all 4 custom "
+                      f"fonts present (bold={os.path.basename(bold_path)})")
         # Override with font_family if config used defaults (auto-resolved).
         elif family != "sans":
             bold_path = _resolve_font(family, "bold")
