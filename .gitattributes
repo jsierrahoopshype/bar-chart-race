@@ -1,0 +1,4 @@
+assets/fonts/** -filter -diff -merge
+assets/logos/** -filter -diff -merge
+hf_space/assets/fonts/** -filter -diff -merge
+hf_space/assets/logos/** -filter -diff -merge
