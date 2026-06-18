@@ -54,6 +54,10 @@ class Theme:
     text_secondary_color: str = "#cccccc"
     label_case: str = "normal"  # "normal", "upper", "title"
     label_position: str = "outside"  # "outside", "inside", "outside-right"
+    # When True (inside labels only): if a bar is too narrow to fit the full
+    # name + value inside, draw them to the right of the bar end instead of
+    # truncating. Default False keeps existing themes byte-identical.
+    label_overflow_outside: bool = False
     value_suffix: str = ""
 
     # Date display
@@ -974,6 +978,7 @@ _register(
        text_color="#ffffff", text_secondary_color="#cccccc",
        label_case="normal",
        label_position="inside",
+       label_overflow_outside=True,
        value_suffix="",
        title_color="#ffffff",
        title_position="top-left",
@@ -1012,6 +1017,7 @@ _register(
        text_color="#ffffff", text_secondary_color="#cccccc",
        label_case="normal",
        label_position="inside",
+       label_overflow_outside=True,
        value_suffix="",
        title_color="#ffffff",
        title_position="top-left",

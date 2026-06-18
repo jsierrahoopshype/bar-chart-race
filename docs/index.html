@@ -283,7 +283,7 @@ a:hover { color: var(--accent-hover); }
   height: 24px;
   flex-shrink: 0;
 }
-.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
 .toggle-switch .slider {
   position: absolute;
   inset: 0;
@@ -730,7 +730,7 @@ function onPolySelect() {
   // Prefill title + subtitle.
   const title = selectedPolyRace.title || selectedPolyRace.name || '';
   document.getElementById('title').value = title;
-  document.getElementById('subtitle').value = 'Implied odds over time';
+  document.getElementById('subtitle').value = 'Implied odds over time, per Polymarket';
 }
 
 // Slug for a race: explicit field, else derived from the title.
