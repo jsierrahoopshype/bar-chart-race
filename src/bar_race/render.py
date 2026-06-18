@@ -1517,6 +1517,9 @@ class FrameRenderer:
         date_xy = (self.W - self._margin_right - 10,
                    int(self.H * 0.93))
         date_text = _abbreviate_months(state.date_label)
+        if th.date_day_no_zero:
+            # Drop a leading zero on the day: "June 06, 2026" -> "June 6, 2026".
+            date_text = re.sub(r'(^|\s)0(\d),', r'\1\2,', date_text)
         if th.date_uppercase:
             date_text = date_text.upper()
         draw.text(

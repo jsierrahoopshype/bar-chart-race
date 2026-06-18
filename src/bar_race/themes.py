@@ -104,6 +104,7 @@ class Theme:
 
     # Date formatting
     date_uppercase: bool = False  # uppercase month abbreviation (JAN vs Jan)
+    date_day_no_zero: bool = False  # drop leading zero on day ("June 06" -> "June 6")
 
 
 # ---------------------------------------------------------------------------
@@ -987,6 +988,7 @@ _register(
        show_player_counter=False,
        date_color="#ffffff", date_opacity=0.9,
        date_uppercase=True,
+       date_day_no_zero=True,
        headshot_shape="rounded", headshot_style="rectangle",
        headshot_border=False,
        headshot_position="in-bar",
@@ -1026,6 +1028,7 @@ _register(
        show_player_counter=False,
        date_color="#ffffff", date_opacity=0.9,
        date_uppercase=True,
+       date_day_no_zero=True,
        headshot_shape="circle", headshot_style="circle",
        headshot_border=False,
        headshot_position="in-bar",
