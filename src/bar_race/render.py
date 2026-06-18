@@ -1400,6 +1400,8 @@ class FrameRenderer:
                 text_right = x2 - 10
                 avail = text_right - text_left
                 min_gap = 10  # minimum pixels between name and value
+                name_y = y1 + (bar_h - th_h) // 2
+                val_y = y1 + (bar_h - vh) // 2
 
                 # Dark gradient overlay on left of bar for readability.
                 grad_w = min(bar_w, max(int(bar_w * 0.5), tw + vw + 40))
@@ -1412,8 +1414,24 @@ class FrameRenderer:
                     img.paste(grad, (x1, y1), grad)
                     draw = ImageDraw.Draw(img)
 
-                name_y = y1 + (bar_h - th_h) // 2
-                val_y = y1 + (bar_h - vh) // 2
+                if th.label_overflow_outside:
+                    # Continuous label: the name is ALWAYS left-anchored at the
+                    # full width (never truncated; on a short bar it spills past
+                    # the bar end onto the canvas). The value is right-aligned at
+                    # the bar end when the name fits inside, otherwise placed just
+                    # after the name. Both value positions coincide exactly at the
+                    # fit threshold, so the label never jumps as a bar grows or
+                    # shrinks across it (avoids the abrupt inside/outside snap).
+                    draw.text((text_left + 1, name_y + 1), name_text,
+                              fill=(0, 0, 0, min(alpha, 120)), font=self.font_name)
+                    draw.text((text_left, name_y), name_text,
+                              fill=(255, 255, 255, alpha), font=self.font_name)
+                    val_x = max(text_left + tw + min_gap, text_right - vw)
+                    draw.text((val_x + 1, val_y + 1), val_text,
+                              fill=(0, 0, 0, min(alpha, 120)), font=self.font_value)
+                    draw.text((val_x, val_y), val_text,
+                              fill=(255, 255, 255, alpha), font=self.font_value)
+                    continue
 
                 # Can both name and value fit inside with a gap?
                 if avail >= vw + min_gap + 30:
