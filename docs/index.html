@@ -550,7 +550,7 @@ const POLY_BASE = 'https://jsierrahoopshype.github.io/nba-polymarket/data/race';
 // Default theme applied when a Polymarket race is selected (picker overrides).
 const POLY_THEME = 'hoopshype-official-gradient';
 // Polymarket races render in all three aspect ratios.
-const POLY_PRESETS = ['reels', 'youtube', 'square'];
+const POLY_PRESETS = ['square', 'reels', 'youtube'];
 
 let themes = [];
 let currentTheme = 'midnight-premium';
@@ -726,6 +726,12 @@ function onPolySelect() {
   document.querySelectorAll('.theme-card').forEach(c => {
     c.classList.toggle('active', c.dataset.slug === POLY_THEME);
   });
+
+  // Polymarket defaults: Square aspect ratio and High Quality (60fps) on.
+  currentPreset = 'square';
+  document.querySelectorAll('.format-btn').forEach(
+    b => b.classList.toggle('active', b.dataset.preset === 'square'));
+  document.getElementById('hqToggle').checked = true;
 
   // Prefill title + subtitle.
   const title = selectedPolyRace.title || selectedPolyRace.name || '';

@@ -90,6 +90,10 @@ class Theme:
 
     # Overlays
     show_gap_alerts: bool = True
+    # Lead callout: when True, show the absolute point gap (leader - second)
+    # instead of the relative margin. Default False keeps existing themes
+    # byte-identical.
+    gap_absolute: bool = False
 
     # Noise & vignette (inherited from config but theme can override)
     vignette: bool = True
@@ -989,6 +993,7 @@ _register(
        date_color="#ffffff", date_opacity=0.9,
        date_uppercase=True,
        date_day_no_zero=True,
+       gap_absolute=True,
        headshot_shape="rounded", headshot_style="rectangle",
        headshot_border=False,
        headshot_position="in-bar",
@@ -1029,6 +1034,7 @@ _register(
        date_color="#ffffff", date_opacity=0.9,
        date_uppercase=True,
        date_day_no_zero=True,
+       gap_absolute=True,
        headshot_shape="circle", headshot_style="circle",
        headshot_border=False,
        headshot_position="in-bar",

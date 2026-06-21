@@ -71,6 +71,7 @@ class FrameState:
     leader: str = ""                        # current #1 player name
     reign_history: list[str] = field(default_factory=list)
     gap_pct: float = 0.0
+    gap_abs: float = 0.0
     show_gap: bool = False
     players_seen: int = 0
 
@@ -449,6 +450,7 @@ def populate_leader_overlays(
         if leader_val > 0 and second_val > 0:
             gap = (leader_val - second_val) / second_val
             f.gap_pct = gap
+            f.gap_abs = leader_val - second_val  # absolute point gap
             if gap_active:
                 gap_active = gap >= gap_hysteresis
             else:
@@ -456,6 +458,7 @@ def populate_leader_overlays(
             f.show_gap = gap_active
         else:
             f.gap_pct = 0.0
+            f.gap_abs = 0.0
             f.show_gap = False
 
     # Close final reign.
