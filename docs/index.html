@@ -134,6 +134,12 @@ a:hover { color: var(--accent-hover); }
 }
 .gsheet-box input:focus,
 .gsheet-box select:focus { border-color: var(--accent); }
+.poly-search-item {
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+  margin-top: 6px; cursor: pointer; font-size: 0.9rem; background: var(--bg);
+}
+.poly-search-item:hover { border-color: var(--text2); }
+.poly-search-item.selected { border-color: var(--accent); background: rgba(255, 107, 53, 0.08); }
 .gsheet-box .hint { font-size: 0.75rem; color: var(--text2); margin-top: 6px; }
 .or-divider {
   display: none;
@@ -423,7 +429,14 @@ a:hover { color: var(--accent-hover); }
     </div>
 
     <div class="gsheet-box" style="margin-top:20px;">
-      <label for="polySelect">Polymarket NBA race</label>
+      <label for="polySearchInput">Search Polymarket (live)</label>
+      <input type="text" id="polySearchInput" autocomplete="off"
+             placeholder="Search markets, e.g. NBA champion, MVP, Finals…"
+             oninput="onPolySearchInput()">
+      <div class="hint" id="polySearchStatus">Type to search live Polymarket markets (no server needed).</div>
+      <div id="polySearchResults"></div>
+
+      <label for="polySelect" style="margin-top:16px;">Polymarket NBA race</label>
       <select id="polySelect" onchange="onPolySelect()">
         <option value="">Loading races&hellip;</option>
       </select>
@@ -552,6 +565,10 @@ const POLY_THEME = 'hoopshype-official-gradient';
 // Polymarket races render in all three aspect ratios.
 const POLY_PRESETS = ['square', 'reels', 'youtube'];
 
+// Live client-side Polymarket APIs (CORS-open; no proxy).
+const GAMMA_BASE = 'https://gamma-api.polymarket.com';
+const CLOB_BASE = 'https://clob.polymarket.com';
+
 let themes = [];
 let currentTheme = 'midnight-premium';
 let uploadedFile = null;
@@ -559,6 +576,10 @@ let videoBlobUrl = null;
 let polyRaces = [];
 let selectedPolyRace = null;
 let polyBlobUrls = [];
+// Live-search state (additive; parallel to the pre-built dropdown).
+let searchedMarket = null;
+let polySearchEvents = [];
+let polySearchTimer = null;
 
 // Sample bar data for theme thumbnails.
 const SAMPLE_BARS = [
@@ -721,6 +742,10 @@ function onPolySelect() {
   selectedPolyRace = polyRaces[parseInt(val, 10)] || null;
   if (!selectedPolyRace) return;
 
+  // Mutual exclusivity: choosing a pre-built race clears any live-search pick.
+  searchedMarket = null;
+  document.querySelectorAll('.poly-search-item').forEach(el => el.classList.remove('selected'));
+
   // Default to the Polymarket theme; the picker can still override afterwards.
   currentTheme = POLY_THEME;
   document.querySelectorAll('.theme-card').forEach(c => {
@@ -770,6 +795,9 @@ function polyRowsToCsv(rows) {
 // Video Generation
 // ---------------------------------------------------------------------------
 async function generateVideo() {
+  if (searchedMarket) {
+    return generateSearched();
+  }
   if (selectedPolyRace) {
     return generatePolymarket();
   }
@@ -797,7 +825,27 @@ async function postRender(config, csvFile, timeoutMs) {
   }
 }
 
+// Pre-built dropdown path (unchanged behavior): fetch the static long-format
+// JSON, then hand the rows to the shared renderer.
 async function generatePolymarket() {
+  const slug = polyRaceSlug(selectedPolyRace);
+  return generatePolyFrom(slug, async () => {
+    document.getElementById('progressText').textContent = 'Fetching Polymarket data...';
+    const r = await fetch(`${POLY_BASE}/${slug}.json`);
+    if (!r.ok) throw new Error('Could not load race data (HTTP ' + r.status + ')');
+    const payload = await r.json();
+    return Array.isArray(payload) ? payload : (payload.data || payload.rows || []);
+  });
+}
+
+// Live-search path: build the same long-format rows from Gamma + CLOB in-browser.
+async function generateSearched() {
+  return generatePolyFrom(searchedSlug(), buildRowsFromSearched);
+}
+
+// Shared renderer: takes a rows-provider + slug, converts to CSV, and runs the
+// identical 3-preset render loop used by the pre-built dropdown path.
+async function generatePolyFrom(slug, acquireRows) {
   const btn = document.getElementById('generateBtn');
   const progressArea = document.getElementById('progressArea');
   const progressFill = document.getElementById('progressFill');
@@ -811,16 +859,11 @@ async function generatePolymarket() {
   btn.textContent = 'Generating...';
   progressArea.style.display = 'block';
   progressFill.style.width = '0%';
-  progressText.textContent = 'Fetching Polymarket data...';
+  progressText.textContent = 'Preparing…';
 
   try {
-    const race = selectedPolyRace;
-    const slug = polyRaceSlug(race);
-    const r = await fetch(`${POLY_BASE}/${slug}.json`);
-    if (!r.ok) throw new Error('Could not load race data (HTTP ' + r.status + ')');
-    const payload = await r.json();
-    const rows = Array.isArray(payload) ? payload : (payload.data || payload.rows || []);
-    if (!rows.length) throw new Error('Race data is empty.');
+    const rows = await acquireRows();
+    if (!rows || !rows.length) throw new Error('No data to render.');
 
     const csv = polyRowsToCsv(rows);
     const csvFile = new File([csv], `${slug}.csv`, { type: 'text/csv' });
@@ -941,6 +984,215 @@ function appendPolyResult(res) {
   block.appendChild(document.createElement('br'));
   block.appendChild(link);
   container.appendChild(block);
+}
+
+// ---------------------------------------------------------------------------
+// Live Polymarket search (Gamma) + history (CLOB) — pure client-side
+// ---------------------------------------------------------------------------
+function onPolySearchInput() {
+  clearTimeout(polySearchTimer);
+  const term = document.getElementById('polySearchInput').value.trim();
+  const status = document.getElementById('polySearchStatus');
+  if (term.length < 2) {
+    document.getElementById('polySearchResults').innerHTML = '';
+    status.textContent = 'Type at least 2 characters…';
+    return;
+  }
+  status.textContent = 'Searching…';
+  polySearchTimer = setTimeout(() => runPolySearch(term), 350);
+}
+
+async function runPolySearch(term) {
+  const status = document.getElementById('polySearchStatus');
+  try {
+    const r = await fetch(`${GAMMA_BASE}/public-search?q=${encodeURIComponent(term)}`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    polySearchEvents = data.events || data.results || (Array.isArray(data) ? data : []);
+  } catch (e) {
+    status.textContent = 'Search failed: ' + e.message;
+    polySearchEvents = [];
+    document.getElementById('polySearchResults').innerHTML = '';
+    return;
+  }
+  renderPolySearchResults();
+}
+
+function eventOutcomeCount(ev) {
+  return Array.isArray(ev.markets) ? ev.markets.length : (ev.outcomeCount || 0);
+}
+
+function renderPolySearchResults() {
+  const box = document.getElementById('polySearchResults');
+  box.innerHTML = '';
+  // Only multi-outcome markets make a race.
+  const evs = polySearchEvents.filter(e => eventOutcomeCount(e) >= 2).slice(0, 20);
+  document.getElementById('polySearchStatus').textContent =
+    evs.length ? `${evs.length} market(s) — pick one` : 'No multi-outcome markets found.';
+  evs.forEach(ev => {
+    const row = document.createElement('div');
+    row.className = 'poly-search-item';
+    row.textContent = `${ev.title || ev.question || ev.slug} (${eventOutcomeCount(ev)} outcomes)`;
+    row.onclick = () => selectSearchedMarket(ev, row);
+    box.appendChild(row);
+  });
+}
+
+function selectSearchedMarket(ev, row) {
+  searchedMarket = ev;
+  // Mutual exclusivity with the pre-built dropdown.
+  selectedPolyRace = null;
+  const sel = document.getElementById('polySelect');
+  if (sel) sel.value = '';
+
+  // Same defaults as onPolySelect (theme, square, HQ on, prefilled title/subtitle).
+  currentTheme = POLY_THEME;
+  document.querySelectorAll('.theme-card').forEach(
+    c => c.classList.toggle('active', c.dataset.slug === POLY_THEME));
+  currentPreset = 'square';
+  document.querySelectorAll('.format-btn').forEach(
+    b => b.classList.toggle('active', b.dataset.preset === 'square'));
+  document.getElementById('hqToggle').checked = true;
+  const title = ev.title || ev.question || '';
+  document.getElementById('title').value = title;
+  document.getElementById('subtitle').value = 'Implied odds over time, per Polymarket';
+
+  document.querySelectorAll('.poly-search-item').forEach(el => el.classList.remove('selected'));
+  if (row) row.classList.add('selected');
+}
+
+function searchedSlug() {
+  const ev = searchedMarket || {};
+  return ev.slug || polyRaceSlug({ title: ev.title || ev.question || 'market' });
+}
+
+// Strip "Will … win …?" wrappers when groupItemTitle is missing.
+function cleanQuestion(q) {
+  if (!q) return '';
+  const s = String(q).replace(/^will\s+/i, '').replace(/\s+win\b.*$/i, '').replace(/\?+\s*$/, '').trim();
+  return s || String(q);
+}
+
+// Picked event's outcomes -> [{tokenId, label, volume, createdAt}].
+function resolveOutcomes(ev) {
+  const markets = ev.markets || [];
+  const out = [];
+  for (const m of markets) {
+    let tokenId = null;
+    const raw = m.clobTokenIds != null ? m.clobTokenIds : m.clobTokenId;
+    if (raw != null) {
+      try {
+        const ids = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        tokenId = Array.isArray(ids) ? ids[0] : ids;   // YES token (index 0)
+      } catch (_) { tokenId = typeof raw === 'string' ? raw : null; }
+    }
+    if (!tokenId) continue;
+    const label = (m.groupItemTitle && m.groupItemTitle.trim())
+      || cleanQuestion(m.question || m.title);
+    const volume = parseFloat(m.volumeNum || m.volume || m.volume24hr || 0) || 0;
+    const createdAt = Math.floor(Date.parse(m.startDate || m.createdAt
+      || ev.startDate || ev.createdAt || 0) / 1000) || 0;
+    out.push({ tokenId: String(tokenId), label, volume, createdAt });
+  }
+  return out;
+}
+
+async function fetchHistory(url) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return [];
+    const j = await r.json();
+    const h = j.history || j || [];
+    return Array.isArray(h) ? h : [];
+  } catch (_) { return []; }
+}
+
+// Empty-response ladder: max/1440 -> explicit window ~300 pts -> drop (null).
+async function fetchPriceHistory(tokenId, createdAtSec) {
+  let hist = await fetchHistory(
+    `${CLOB_BASE}/prices-history?market=${encodeURIComponent(tokenId)}&interval=max&fidelity=1440`);
+  if (hist.length >= 2) return hist;
+  if (createdAtSec > 0) {
+    const now = Math.floor(Date.now() / 1000);
+    const span = Math.max(now - createdAtSec, 86400);
+    const fidelity = Math.max(1, Math.floor(span / 60 / 300)); // ~300 points
+    hist = await fetchHistory(
+      `${CLOB_BASE}/prices-history?market=${encodeURIComponent(tokenId)}`
+      + `&startTs=${createdAtSec}&endTs=${now}&fidelity=${fidelity}`);
+    if (hist.length >= 2) return hist;
+  }
+  return null;
+}
+
+// Daily-close series (UTC) for one outcome: Map<YYYY-MM-DD, price 0..1>.
+function dailySeries(hist) {
+  const pts = hist
+    .map(pt => ({ t: pt.t != null ? pt.t : pt.timestamp, p: pt.p != null ? pt.p : pt.price }))
+    .filter(pt => pt.t != null && pt.p != null)
+    .sort((a, b) => a.t - b.t);
+  const m = new Map();
+  for (const pt of pts) {
+    const day = new Date(pt.t * 1000).toISOString().slice(0, 10);
+    m.set(day, Number(pt.p));   // ascending -> last point of the day wins (daily close)
+  }
+  return m;
+}
+
+// Build the long-format rows from the picked market, matching the tracker:
+// daily close per outcome, per-day normalized so odds sum to 100%.
+async function buildRowsFromSearched() {
+  const progressText = document.getElementById('progressText');
+  progressText.textContent = 'Resolving market outcomes…';
+  let outs = resolveOutcomes(searchedMarket);
+  if (!outs.length) throw new Error('No outcomes found for this market.');
+
+  // Cap how many outcomes we fetch (top-N by volume); the renderer shows top_n.
+  const topN = parseInt(document.getElementById('topN').value) || 10;
+  outs.sort((a, b) => b.volume - a.volume);
+  outs = outs.slice(0, Math.min(18, Math.max(topN + 4, 12)));
+
+  const series = [];
+  for (let i = 0; i < outs.length; i++) {
+    progressText.textContent = `Fetching price history ${i + 1}/${outs.length}…`;
+    const hist = await fetchPriceHistory(outs[i].tokenId, outs[i].createdAt);
+    if (!hist) continue;                 // empty-ladder drop
+    const map = dailySeries(hist);
+    if (map.size >= 2) series.push({ label: outs[i].label, map });
+  }
+
+  // Backstop: never make a 1–2 bar or blank video.
+  const distinct = new Set(series.map(s => s.label));
+  if (series.length < 3 || distinct.size < 3) {
+    throw new Error('Not enough history for a race — need at least 3 outcomes with daily data.');
+  }
+
+  // Global day range; forward-fill each outcome from its first day to the last.
+  const allDays = new Set();
+  series.forEach(s => s.map.forEach((_, d) => allDays.add(d)));
+  const days = [...allDays].sort();
+  const filled = series.map(s => {
+    const first = [...s.map.keys()].sort()[0];
+    const out = new Map();
+    let last = null;
+    for (const d of days) {
+      if (d < first) continue;
+      if (s.map.has(d)) last = s.map.get(d);
+      if (last != null) out.set(d, last);
+    }
+    return { label: s.label, map: out };
+  });
+
+  // Per-day normalize across active outcomes so values sum to 100%.
+  const rows = [];
+  for (const d of days) {
+    const present = filled.filter(s => s.map.has(d));
+    const sum = present.reduce((a, s) => a + s.map.get(d), 0);
+    if (sum <= 0) continue;
+    for (const s of present) {
+      rows.push({ date: d, player: s.label, value: Number((s.map.get(d) / sum * 100).toFixed(1)) });
+    }
+  }
+  return rows;
 }
 
 async function generateUpload() {
