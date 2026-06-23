@@ -140,6 +140,7 @@ a:hover { color: var(--accent-hover); }
 }
 .poly-search-item:hover { border-color: var(--text2); }
 .poly-search-item.selected { border-color: var(--accent); background: rgba(255, 107, 53, 0.08); }
+.poly-search-meta { font-size: 0.75rem; color: var(--text2); margin-top: 2px; }
 .gsheet-box .hint { font-size: 0.75rem; color: var(--text2); margin-top: 6px; }
 .or-divider {
   display: none;
@@ -429,11 +430,11 @@ a:hover { color: var(--accent-hover); }
     </div>
 
     <div class="gsheet-box" style="margin-top:20px;">
-      <label for="polySearchInput">Search Polymarket (live)</label>
+      <label for="polySearchInput">Search Polymarket NBA futures (live)</label>
       <input type="text" id="polySearchInput" autocomplete="off"
-             placeholder="Search markets, e.g. NBA champion, MVP, Finals…"
-             oninput="onPolySearchInput()">
-      <div class="hint" id="polySearchStatus">Type to search live Polymarket markets (no server needed).</div>
+             placeholder="Browse all, or filter — e.g. champion, MVP, Beal…"
+             oninput="onPolySearchInput()" onfocus="runPolySearch()">
+      <div class="hint" id="polySearchStatus">Click to browse live NBA futures, or type to filter.</div>
       <div id="polySearchResults"></div>
 
       <label for="polySelect" style="margin-top:16px;">Polymarket NBA race</label>
@@ -578,7 +579,8 @@ let selectedPolyRace = null;
 let polyBlobUrls = [];
 // Live-search state (additive; parallel to the pre-built dropdown).
 let searchedMarket = null;
-let polySearchEvents = [];
+let polySearchEvents = [];   // cached raceable NBA futures (from /events?tag_id=745)
+let polyEventsLoaded = false;
 let polySearchTimer = null;
 
 // Sample bar data for theme thumbnails.
@@ -991,48 +993,125 @@ function appendPolyResult(res) {
 // ---------------------------------------------------------------------------
 function onPolySearchInput() {
   clearTimeout(polySearchTimer);
-  const term = document.getElementById('polySearchInput').value.trim();
-  const status = document.getElementById('polySearchStatus');
-  if (term.length < 2) {
-    document.getElementById('polySearchResults').innerHTML = '';
-    status.textContent = 'Type at least 2 characters…';
-    return;
-  }
-  status.textContent = 'Searching…';
-  polySearchTimer = setTimeout(() => runPolySearch(term), 350);
+  polySearchTimer = setTimeout(runPolySearch, 250);
 }
 
-async function runPolySearch(term) {
+// Source the NBA futures once from the tag-filtered events endpoint (the
+// tracker's NBA_TAG_ID=745), keep only raceable ones, then filter client-side.
+async function runPolySearch() {
   const status = document.getElementById('polySearchStatus');
-  try {
-    const r = await fetch(`${GAMMA_BASE}/public-search?q=${encodeURIComponent(term)}`);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
-    polySearchEvents = data.events || data.results || (Array.isArray(data) ? data : []);
-  } catch (e) {
-    status.textContent = 'Search failed: ' + e.message;
-    polySearchEvents = [];
-    document.getElementById('polySearchResults').innerHTML = '';
-    return;
+  if (!polyEventsLoaded) {
+    status.textContent = 'Loading NBA futures…';
+    try {
+      const r = await fetch(`${GAMMA_BASE}/events?tag_id=745&closed=false`
+        + `&limit=100&order=volume24hr&ascending=false`);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      const events = Array.isArray(data) ? data : (data.events || data.data || []);
+      polySearchEvents = events.filter(eventIsRaceableNBA);
+      polyEventsLoaded = true;
+    } catch (e) {
+      status.textContent = 'Could not load NBA futures: ' + e.message;
+      document.getElementById('polySearchResults').innerHTML = '';
+      return;
+    }
   }
   renderPolySearchResults();
+}
+
+// Lenient term match: humanized slug OR raw slug OR display name OR any market
+// question / team label. Empty / <2 chars matches everything (browsable menu).
+function eventMatchesTerm(ev, term) {
+  if (term.length < 2) return true;
+  const hay = [humanizeSlug(ev.slug), ev.slug, marketDisplayName(ev)]
+    .concat((ev.markets || []).map(m => `${m.question || ''} ${m.groupItemTitle || ''}`))
+    .join(' ').toLowerCase();
+  return hay.includes(term);
 }
 
 function eventOutcomeCount(ev) {
   return Array.isArray(ev.markets) ? ev.markets.length : (ev.outcomeCount || 0);
 }
 
+// Tag ids as strings, whether tags are [{id}] objects or bare ids.
+function eventTagIds(ev) {
+  return (ev.tags || []).map(t => String(t && t.id != null ? t.id : t));
+}
+
+// Raceable NBA futures = the tracker's shape: NBA tag 745, multi-outcome
+// (negRisk), still open, and >= 3 outcomes. Excludes single-game head-to-heads
+// and resolved markets.
+function eventIsRaceableNBA(ev) {
+  const isNBA = eventTagIds(ev).includes('745');
+  const multi = ev.negRisk === true || ev.negRisk === 'true';
+  const open = ev.closed !== true && ev.closed !== 'true' && ev.active !== false;
+  const enough = Array.isArray(ev.markets) && ev.markets.length >= 3;
+  return isNBA && multi && open && enough;
+}
+
+// Humanize a slug: "nba-champion-2026-2027" -> "NBA Champion 2026-2027".
+const _ACRONYMS = ['NBA', 'NFL', 'MLB', 'NHL', 'MVP', 'ROY', 'DPOY', 'NCAA', 'UFC'];
+function humanizeSlug(slug) {
+  if (!slug) return '';
+  let s = String(slug).replace(/[-_]+/g, ' ').trim()
+    .replace(/\b\w+/g, w => _ACRONYMS.includes(w.toUpperCase())
+      ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1));
+  return s.replace(/\b(\d{4}) (\d{2,4})\b/g, '$1-$2'); // re-join year ranges
+}
+
+// Descriptive market name: humanized slug primary; synthesize from the markets'
+// question (team stripped) if the slug is junk; event title last resort.
+function marketDisplayName(ev) {
+  const fromSlug = humanizeSlug(ev.slug);
+  if (fromSlug && !/^(nba|sports|basketball)$/i.test(fromSlug.trim())) return fromSlug;
+  const m0 = ev.markets && ev.markets[0];
+  if (m0 && m0.question) {
+    let q = String(m0.question);
+    if (m0.groupItemTitle) q = q.split(m0.groupItemTitle).join('').replace(/\s{2,}/g, ' ');
+    q = q.replace(/^will the\s+/i, '').replace(/^will\s+/i, '').replace(/\?+\s*$/, '').trim();
+    if (q) return q;
+  }
+  return ev.title || ev.slug || 'NBA market';
+}
+
+// First day of data (event/market open) and range, from metadata only.
+function eventDateLabel(ev) {
+  const starts = [ev.startDate, ev.createdAt]
+    .concat((ev.markets || []).map(m => m.startDate || m.createdAt))
+    .map(d => Date.parse(d)).filter(n => !isNaN(n));
+  if (!starts.length) return '';
+  const fmt = ms => new Date(ms).toLocaleString('en-US',
+    { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  const endMs = Date.parse(ev.endDate);
+  return !isNaN(endMs)
+    ? `${fmt(Math.min(...starts))} → ${fmt(endMs)}`
+    : `since ${fmt(Math.min(...starts))}`;
+}
+
 function renderPolySearchResults() {
+  const term = document.getElementById('polySearchInput').value.trim().toLowerCase();
   const box = document.getElementById('polySearchResults');
   box.innerHTML = '';
-  // Only multi-outcome markets make a race.
-  const evs = polySearchEvents.filter(e => eventOutcomeCount(e) >= 2).slice(0, 20);
-  document.getElementById('polySearchStatus').textContent =
-    evs.length ? `${evs.length} market(s) — pick one` : 'No multi-outcome markets found.';
+  // polySearchEvents is already raceable-filtered; just term-filter here.
+  const evs = polySearchEvents.filter(ev => eventMatchesTerm(ev, term)).slice(0, 40);
+  console.log(`[poly-search] NBA futures${term.length >= 2 ? ` matching "${term}"` : ' (all)'}:`,
+    evs.map(e => ({
+      name: marketDisplayName(e), outcomes: eventOutcomeCount(e), slug: e.slug, dates: eventDateLabel(e),
+    })));
+  document.getElementById('polySearchStatus').textContent = evs.length
+    ? `${evs.length} NBA futures${term.length >= 2 ? ' matching' : ''} — pick one`
+    : (term.length >= 2 ? 'No matching NBA futures.' : 'No NBA futures found.');
   evs.forEach(ev => {
     const row = document.createElement('div');
     row.className = 'poly-search-item';
-    row.textContent = `${ev.title || ev.question || ev.slug} (${eventOutcomeCount(ev)} outcomes)`;
+    const name = document.createElement('div');
+    name.style.fontWeight = '600';
+    name.textContent = marketDisplayName(ev);
+    const meta = document.createElement('div');
+    meta.className = 'poly-search-meta';
+    meta.textContent = `${eventOutcomeCount(ev)} outcomes · ${eventDateLabel(ev)}`;
+    row.appendChild(name);
+    row.appendChild(meta);
     row.onclick = () => selectSearchedMarket(ev, row);
     box.appendChild(row);
   });
@@ -1053,8 +1132,7 @@ function selectSearchedMarket(ev, row) {
   document.querySelectorAll('.format-btn').forEach(
     b => b.classList.toggle('active', b.dataset.preset === 'square'));
   document.getElementById('hqToggle').checked = true;
-  const title = ev.title || ev.question || '';
-  document.getElementById('title').value = title;
+  document.getElementById('title').value = marketDisplayName(ev);
   document.getElementById('subtitle').value = 'Implied odds over time, per Polymarket';
 
   document.querySelectorAll('.poly-search-item').forEach(el => el.classList.remove('selected'));
@@ -1183,13 +1261,32 @@ async function buildRowsFromSearched() {
   });
 
   // Per-day normalize across active outcomes so values sum to 100%.
-  const rows = [];
+  const perDay = [];
   for (const d of days) {
     const present = filled.filter(s => s.map.has(d));
     const sum = present.reduce((a, s) => a + s.map.get(d), 0);
     if (sum <= 0) continue;
-    for (const s of present) {
-      rows.push({ date: d, player: s.label, value: Number((s.map.get(d) / sum * 100).toFixed(1)) });
+    perDay.push({ day: d, vals: present.map(s => ({ label: s.label, value: s.map.get(d) / sum * 100 })) });
+  }
+
+  // Trim leading "flat" days where outcomes seed at uniform/default prices
+  // (e.g. 25/25/25/25) before real trading. Start at the first day whose
+  // spread (max - min) reaches the threshold; keep everything after. Front-only.
+  const FLAT_SPREAD = 3.0;   // percentage points
+  const MIN_DAYS = 5;
+  const spreadOf = x => {
+    const vs = x.vals.map(v => v.value);
+    return vs.length ? Math.max(...vs) - Math.min(...vs) : 0;
+  };
+  let startIdx = perDay.findIndex(x => spreadOf(x) >= FLAT_SPREAD);
+  if (startIdx < 0) startIdx = 0;                          // never any spread -> keep all
+  if (perDay.length - startIdx < MIN_DAYS) startIdx = 0;   // guard: too few days -> keep untrimmed
+  const kept = perDay.slice(startIdx);
+
+  const rows = [];
+  for (const x of kept) {
+    for (const v of x.vals) {
+      rows.push({ date: x.day, player: v.label, value: Number(v.value.toFixed(1)) });
     }
   }
   return rows;
