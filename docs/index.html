@@ -1348,7 +1348,7 @@ async function generateUpload() {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000);
+    const timeout = setTimeout(() => controller.abort(), 300000);
 
     const response = await fetch(API_BASE + '/api/generate', {
       method: 'POST',
@@ -1385,9 +1385,9 @@ async function generateUpload() {
   } catch (e) {
     clearInterval(progressInterval);
     if (e.name === 'AbortError') {
-      errorText.textContent = 'Request timed out. Try a shorter duration or lower quality.';
+      errorText.textContent = 'Request timed out after 5 minutes. For long videos, reduce duration to 30s or switch to 30 FPS.';
     } else {
-      errorText.textContent = 'Error: ' + e.message;
+      errorText.textContent = 'Error: ' + e.message + ' — For long videos, reduce duration to 30s or switch to 30 FPS.';
     }
   } finally {
     btn.disabled = false;
