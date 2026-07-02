@@ -30,6 +30,7 @@ CORS(app)
 
 SPACE_DIR = Path(__file__).resolve().parent
 HEADSHOT_DIR = SPACE_DIR / "assets" / "headshots"
+LOGO_DIR = SPACE_DIR / "assets" / "logos"
 
 
 @app.route("/api/health", methods=["GET"])
@@ -130,7 +131,7 @@ def generate():
             gsheet_url=gsheet_url if not tmp_input else None,
             output=tmp_output,
             preset=config.get("preset", "reels"),
-            theme=config.get("theme", "midnight-premium"),
+            theme=config.get("theme", "hoopshype-official-gradient"),
             fps=int(config.get("fps", 30)),
             duration_sec=float(config.get("duration", 30)),
             top_n=int(config.get("top_n", 10)),
@@ -138,6 +139,7 @@ def generate():
             subtitle=config.get("subtitle", ""),
             watermark=config.get("watermark", ""),
             headshot_dir=str(HEADSHOT_DIR),
+            logo_dir=str(LOGO_DIR),
             # Value formatting — defaults preserve existing behavior when absent:
             #   value_decimals -1 = auto-detect, value_suffix None = use theme.
             value_decimals=int(config.get("value_decimals", -1)),

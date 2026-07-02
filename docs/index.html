@@ -571,7 +571,7 @@ const GAMMA_BASE = 'https://gamma-api.polymarket.com';
 const CLOB_BASE = 'https://clob.polymarket.com';
 
 let themes = [];
-let currentTheme = 'midnight-premium';
+let currentTheme = 'hoopshype-official-gradient';
 let uploadedFile = null;
 let videoBlobUrl = null;
 let polyRaces = [];
@@ -1316,7 +1316,7 @@ async function generateUpload() {
   progressFill.style.width = '0%';
   progressText.textContent = 'Uploading data...';
 
-  // Build config.
+  // Build config — mirror Polymarket path (clean, no bottom stats panel).
   const config = {
     theme: currentTheme,
     preset: currentPreset,
@@ -1327,6 +1327,9 @@ async function generateUpload() {
     subtitle: document.getElementById('subtitle').value,
     watermark: document.getElementById('watermark').value,
     gsheet_url: gsheetUrl || undefined,
+    show_reign_history: false,
+    show_tenure_leaderboard: false,
+    show_milestone_records: false,
   };
 
   const formData = new FormData();
