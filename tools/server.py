@@ -216,7 +216,7 @@ def _make_theme_with_overrides(slug: str, overrides: dict) -> str:
         base = get_theme(slug)
     except ValueError:
         # Unknown theme (e.g. "custom-main" from browser localStorage).
-        base = get_theme("midnight-premium")
+        base = get_theme("hoopshype-official-gradient")
     theme = copy.copy(base)
     for key, val in overrides.items():
         if hasattr(theme, key):
@@ -434,7 +434,7 @@ class Handler(SimpleHTTPRequestHandler):
             body = self.rfile.read(content_length)
             config = json.loads(body)
 
-            theme_slug = config.get("theme", "midnight-premium")
+            theme_slug = config.get("theme", "hoopshype-official-gradient")
             overrides = config.get("overrides", {})
             temp_slug = None
 
@@ -530,7 +530,7 @@ class Handler(SimpleHTTPRequestHandler):
             output_path = str(PROJECT_ROOT / output_name)
 
             # Apply theme overrides if present.
-            theme_slug = config.get("theme", "midnight-premium")
+            theme_slug = config.get("theme", "hoopshype-official-gradient")
             theme_overrides = config.get("theme_overrides", {})
             temp_slug = None
             if theme_overrides:
