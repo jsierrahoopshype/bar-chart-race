@@ -733,16 +733,25 @@ def _remove_white_halo(img: Image.Image) -> Image.Image:
 
 
 def _apply_shape_mask(img: Image.Image, shape: str, size: int) -> Image.Image:
-    """Apply a shape mask (circle, rounded, square) to an image."""
-    mask = Image.new("L", (size, size), 0)
-    md = ImageDraw.Draw(mask)
-    if shape == "circle":
-        md.ellipse([0, 0, size - 1, size - 1], fill=255)
-    elif shape == "rounded":
-        md.rounded_rectangle([0, 0, size - 1, size - 1],
-                             radius=size // 6, fill=255)
+    """Apply a shape mask (circle, rounded, square) to an image.
+
+    For circle/rounded shapes, supersample the mask at 4x and downsample
+    with LANCZOS for smooth anti-aliased edges (avoids the pixel-jagged
+    look of PIL's default ellipse drawing at small sizes).
+    """
+    if shape in ("circle", "rounded"):
+        ss = 4
+        big = Image.new("L", (size * ss, size * ss), 0)
+        bd = ImageDraw.Draw(big)
+        if shape == "circle":
+            bd.ellipse([0, 0, size * ss - 1, size * ss - 1], fill=255)
+        else:
+            bd.rounded_rectangle([0, 0, size * ss - 1, size * ss - 1],
+                                 radius=(size * ss) // 6, fill=255)
+        mask = big.resize((size, size), Image.LANCZOS)
     else:  # square
-        md.rectangle([0, 0, size - 1, size - 1], fill=255)
+        mask = Image.new("L", (size, size), 0)
+        ImageDraw.Draw(mask).rectangle([0, 0, size - 1, size - 1], fill=255)
     img.putalpha(mask)
     return img
 
@@ -890,12 +899,25 @@ def _load_headshot(
 
         else:
             # Default "circle" style.
-            img = raw.resize((effective_size, effective_size), Image.LANCZOS)
-            img = _remove_white_halo(img)
-            img = _apply_shape_mask(img, theme.headshot_shape, effective_size)
+            # Square-crop from top (face focus) before resize so landscape
+            # sources don't get squashed into the circle.
+            src_w, src_h = raw.size
+            if src_w != src_h:
+                side = min(src_w, src_h)
+                left = (src_w - side) // 2
+                raw = raw.crop((left, 0, left + side, side))
+            # Supersample: resize to 2x target with LANCZOS, apply mask/border
+            # at 2x, then downsample to final size. Sharper edges + smoother
+            # anti-aliasing than a single-pass resize.
+            ss = 2
+            big_size = effective_size * ss
+            big = raw.resize((big_size, big_size), Image.LANCZOS)
+            big = _remove_white_halo(big)
+            big = _apply_shape_mask(big, theme.headshot_shape, big_size)
             if theme.headshot_border:
-                img = _apply_border(img, theme.headshot_shape, effective_size,
+                big = _apply_border(big, theme.headshot_shape, big_size,
                                     _resolve_border_color(theme, team_color))
+            img = big.resize((effective_size, effective_size), Image.LANCZOS)
             result = img
 
     _headshot_cache[cache_key] = result
