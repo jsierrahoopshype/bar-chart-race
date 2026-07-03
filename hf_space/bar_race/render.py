@@ -1348,7 +1348,14 @@ class FrameRenderer:
             # --- headshot / team logo --------------------------------------
             hs_right_edge = 0  # track right edge for "inside" label layout
             hs = None
-            hs_size = max(16, bar_h - 6)
+            # Circle/hard-alpha styles get a slightly larger size — the ring
+            # extends beyond the picture edge, so the picture itself needs to
+            # be closer to bar height to look prominent (was bar_h - 6 which
+            # produced tiny badges).
+            if th.headshot_style in ("circle", "hard-alpha"):
+                hs_size = max(16, bar_h)
+            else:
+                hs_size = max(16, bar_h - 6)
             if self._team_mode:
                 # Team mode: load logo from assets/logos/.
                 abbrev = lookup_team(bar.player)
@@ -1376,23 +1383,33 @@ class FrameRenderer:
                         hs_y = y1 + (bar_h - hs_h) // 2
 
                     # Draw colored ring behind non-rectangle, non-vignette,
-                    # non-shrink-pad styles.
+                    # non-shrink-pad styles. Supersampled 3x + LANCZOS
+                    # downsample for smooth anti-aliased edges (PIL's default
+                    # ellipse at small sizes produces jagged pixels).
                     if th.headshot_style in ("circle", "hard-alpha"):
                         ring_pad = 4
                         ring_size = hs_w + ring_pad * 2
-                        ring = Image.new("RGBA", (ring_size, ring_size), (0, 0, 0, 0))
-                        rd = ImageDraw.Draw(ring)
+                        ss = 3
+                        big = Image.new("RGBA",
+                                        (ring_size * ss, ring_size * ss),
+                                        (0, 0, 0, 0))
+                        rd = ImageDraw.Draw(big)
                         shape = th.headshot_shape
+                        bsz = ring_size * ss
                         if shape == "circle":
-                            rd.ellipse([0, 0, ring_size - 1, ring_size - 1],
-                                       fill=(*base_rgb, 255), outline=(0, 0, 0, 77))
+                            rd.ellipse([0, 0, bsz - 1, bsz - 1],
+                                       fill=(*base_rgb, 255), outline=(0, 0, 0, 77),
+                                       width=ss)
                         elif shape == "rounded":
-                            rd.rounded_rectangle([0, 0, ring_size - 1, ring_size - 1],
-                                                 radius=ring_size // 6,
-                                                 fill=(*base_rgb, 255), outline=(0, 0, 0, 77))
+                            rd.rounded_rectangle([0, 0, bsz - 1, bsz - 1],
+                                                 radius=bsz // 6,
+                                                 fill=(*base_rgb, 255),
+                                                 outline=(0, 0, 0, 77), width=ss)
                         else:
-                            rd.rectangle([0, 0, ring_size - 1, ring_size - 1],
-                                         fill=(*base_rgb, 255), outline=(0, 0, 0, 77))
+                            rd.rectangle([0, 0, bsz - 1, bsz - 1],
+                                         fill=(*base_rgb, 255),
+                                         outline=(0, 0, 0, 77), width=ss)
+                        ring = big.resize((ring_size, ring_size), Image.LANCZOS)
                         img.paste(ring, (hs_x - ring_pad, hs_y - ring_pad), ring)
 
                     img.paste(hs, (hs_x, hs_y), hs)
