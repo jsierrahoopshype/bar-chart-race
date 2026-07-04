@@ -1353,7 +1353,13 @@ class FrameRenderer:
             # beyond the picture. (Previous fixes tried bar_h - 6 = too small
             # and bar_h = too big; 0.87 is the middle ground.)
             if th.headshot_style in ("circle", "hard-alpha"):
-                hs_size = max(16, int(bar_h * 0.87))
+                # 0.87 now bounds the OUTER ring (picture + 4px pad on each side),
+                # not the picture alone. Guarantees the ring never exceeds bar_h,
+                # regardless of bar height. Previous version sized the picture to
+                # 0.87*bar_h and then added the ring on top, which pushed the ring
+                # past bar_h whenever bar_h was under ~62px.
+                outer_size = max(16, int(bar_h * 0.87))
+                hs_size = max(8, outer_size - 8)  # 8 = ring_pad(4) * 2
             else:
                 hs_size = max(16, bar_h - 6)
             if self._team_mode:
