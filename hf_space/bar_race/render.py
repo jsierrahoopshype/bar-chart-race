@@ -1353,13 +1353,7 @@ class FrameRenderer:
             # beyond the picture. (Previous fixes tried bar_h - 6 = too small
             # and bar_h = too big; 0.87 is the middle ground.)
             if th.headshot_style in ("circle", "hard-alpha"):
-                # 0.87 now bounds the OUTER ring (picture + 4px pad on each side),
-                # not the picture alone. Guarantees the ring never exceeds bar_h,
-                # regardless of bar height. Previous version sized the picture to
-                # 0.87*bar_h and then added the ring on top, which pushed the ring
-                # past bar_h whenever bar_h was under ~62px.
-                outer_size = max(16, int(bar_h * 0.87))
-                hs_size = max(8, outer_size - 8)  # 8 = ring_pad(4) * 2
+                hs_size = max(16, int(bar_h * 0.87))
             else:
                 hs_size = max(16, bar_h - 6)
             if self._team_mode:
@@ -1387,64 +1381,6 @@ class FrameRenderer:
                     else:
                         hs_x = x1 + 6
                         hs_y = y1 + (bar_h - hs_h) // 2
-
-                    # Draw colored ring behind non-rectangle, non-vignette,
-                    # non-shrink-pad styles. Supersampled 3x + LANCZOS
-                    # downsample for smooth anti-aliased edges (PIL's default
-                    # ellipse at small sizes produces jagged pixels).
-                    if th.headshot_style in ("circle", "hard-alpha"):
-                        ring_pad = 4
-                        ring_size = hs_w + ring_pad * 2
-                        shape = th.headshot_shape
-
-                        # Soft shadow/aura behind the badge for depth. Draw a
-                        # black blob slightly larger than the ring, blur it,
-                        # paste offset down-right. Alpha kept low so it reads
-                        # as ambient shadow, not a hard drop-shadow.
-                        shadow_extra = 6
-                        shadow_size = ring_size + shadow_extra * 2
-                        shadow = Image.new("RGBA",
-                                           (shadow_size, shadow_size),
-                                           (0, 0, 0, 0))
-                        sh_d = ImageDraw.Draw(shadow)
-                        if shape == "circle":
-                            sh_d.ellipse([0, 0, shadow_size - 1, shadow_size - 1],
-                                         fill=(0, 0, 0, 110))
-                        elif shape == "rounded":
-                            sh_d.rounded_rectangle(
-                                [0, 0, shadow_size - 1, shadow_size - 1],
-                                radius=shadow_size // 6, fill=(0, 0, 0, 110))
-                        else:
-                            sh_d.rectangle(
-                                [0, 0, shadow_size - 1, shadow_size - 1],
-                                fill=(0, 0, 0, 110))
-                        shadow = shadow.filter(ImageFilter.GaussianBlur(radius=5))
-                        img.paste(shadow,
-                                  (hs_x - ring_pad - shadow_extra + 2,
-                                   hs_y - ring_pad - shadow_extra + 2),
-                                  shadow)
-
-                        ss = 3
-                        big = Image.new("RGBA",
-                                        (ring_size * ss, ring_size * ss),
-                                        (0, 0, 0, 0))
-                        rd = ImageDraw.Draw(big)
-                        bsz = ring_size * ss
-                        if shape == "circle":
-                            rd.ellipse([0, 0, bsz - 1, bsz - 1],
-                                       fill=(*base_rgb, 255), outline=(0, 0, 0, 77),
-                                       width=ss)
-                        elif shape == "rounded":
-                            rd.rounded_rectangle([0, 0, bsz - 1, bsz - 1],
-                                                 radius=bsz // 6,
-                                                 fill=(*base_rgb, 255),
-                                                 outline=(0, 0, 0, 77), width=ss)
-                        else:
-                            rd.rectangle([0, 0, bsz - 1, bsz - 1],
-                                         fill=(*base_rgb, 255),
-                                         outline=(0, 0, 0, 77), width=ss)
-                        ring = big.resize((ring_size, ring_size), Image.LANCZOS)
-                        img.paste(ring, (hs_x - ring_pad, hs_y - ring_pad), ring)
 
                     img.paste(hs, (hs_x, hs_y), hs)
                     hs_right_edge = hs_x + hs_w
