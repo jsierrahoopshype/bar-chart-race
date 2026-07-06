@@ -1686,7 +1686,8 @@ class FrameRenderer:
                 and state.show_gap and state.bars):
             leader_bar = min(state.bars, key=lambda b: b.rank)
             if leader_bar.rank < n_bars:
-                if th.gap_absolute:
+                _gap_mode = self.cfg.gap_absolute if self.cfg.gap_absolute is not None else th.gap_absolute
+                if _gap_mode:
                     # Absolute point gap, formatted like the bar values.
                     gap_text = f"+{state.gap_abs:{self._val_fmt}}{self._val_suffix} lead"
                 else:

@@ -207,6 +207,9 @@ class Config:
     # --- entity type ----------------------------------------------------------
     entity_type: str = "auto"  # "auto", "player", "team"
 
+    # --- gap indicator override -----------------------------------------------
+    gap_absolute: Optional[bool] = None  # None = use theme's own value (current behavior)
+
     def __post_init__(self) -> None:
         fonts = default_fonts()
         if not self.font_bold:

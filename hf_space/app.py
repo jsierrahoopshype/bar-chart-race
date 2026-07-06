@@ -148,6 +148,7 @@ def generate():
             show_reign_history=bool(config.get("show_reign_history", True)),
             show_tenure_leaderboard=bool(config.get("show_tenure_leaderboard", True)),
             show_milestone_records=bool(config.get("show_milestone_records", True)),
+            gap_absolute=config.get("gap_absolute"),  # None if absent, falls back to theme's value
         )
 
         # Run pipeline (synchronous — HF Spaces have generous timeouts).

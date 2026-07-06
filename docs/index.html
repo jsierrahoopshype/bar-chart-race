@@ -1327,6 +1327,7 @@ async function generateUpload() {
     subtitle: document.getElementById('subtitle').value,
     watermark: document.getElementById('watermark').value,
     gsheet_url: gsheetUrl || undefined,
+    gap_absolute: false,
   };
 
   const formData = new FormData();
