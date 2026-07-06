@@ -1356,13 +1356,17 @@ class FrameRenderer:
                 hs_size = max(16, int(bar_h * 0.87))
             else:
                 hs_size = max(16, bar_h - 6)
-            if self._team_mode:
-                # Team mode: load logo from assets/logos/.
-                abbrev = lookup_team(bar.player)
-                if not abbrev and bar.team:
-                    abbrev = bar.team
-                if abbrev:
-                    hs = self._load_team_logo(abbrev, hs_size)
+            _bar_abbrev = None
+            if self.cfg.entity_type != "player":
+                # Resolve team-vs-player PER BAR, not once for the whole dataset.
+                # Handles mixed CSVs where some rows are players and some are teams
+                # (self._team_mode alone can't do this, since it's one bool for
+                # the entire render, decided by whichever type is the majority).
+                _bar_abbrev = lookup_team(bar.player)
+                if not _bar_abbrev and bar.team:
+                    _bar_abbrev = bar.team
+            if _bar_abbrev:
+                hs = self._load_team_logo(_bar_abbrev, hs_size)
             elif self.cfg.headshot_dir:
                 hs = _load_headshot(
                     bar.player, self.cfg.headshot_dir, hs_size, th,
@@ -1387,7 +1391,7 @@ class FrameRenderer:
                     draw = ImageDraw.Draw(img)
 
             # --- prepare text ---------------------------------------------
-            name_text = get_short_name(bar.player) if self._team_mode else bar.player
+            name_text = get_short_name(bar.player) if _bar_abbrev else bar.player
             if th.label_case == "upper":
                 name_text = name_text.upper()
             elif th.label_case == "title":
