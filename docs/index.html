@@ -444,6 +444,12 @@ a:hover { color: var(--accent-hover); }
       <div class="hint">Implied-odds markets from Polymarket. Picking one sets the
         theme &amp; percentage formatting and renders all three formats
         (Reels, YouTube &amp; Square). Clear the selection to use a file or Sheet instead.</div>
+
+      <label for="polyStartDate" style="margin-top:16px;">Start date (optional)</label>
+      <input type="date" id="polyStartDate">
+      <div class="hint">Leave blank for full history (dropdown races) or the
+        automatic trim of flat/seed days (live search). Set a date to start the
+        race there instead &mdash; this overrides the automatic trim.</div>
     </div>
   </div>
 
@@ -565,6 +571,8 @@ const POLY_BASE = 'https://jsierrahoopshype.github.io/nba-polymarket/data/race';
 const POLY_THEME = 'hoopshype-official-gradient';
 // Polymarket races render in all three aspect ratios.
 const POLY_PRESETS = ['square', 'reels', 'youtube'];
+// Minimum distinct dates needed for a usable race (dropdown + search paths).
+const MIN_POLY_DATES = 3;
 
 // Live client-side Polymarket APIs (CORS-open; no proxy).
 const GAMMA_BASE = 'https://gamma-api.polymarket.com';
@@ -864,8 +872,21 @@ async function generatePolyFrom(slug, acquireRows) {
   progressText.textContent = 'Preparing…';
 
   try {
-    const rows = await acquireRows();
+    let rows = await acquireRows();
     if (!rows || !rows.length) throw new Error('No data to render.');
+
+    // Optional user-chosen start date: filter to date >= chosen date. Overrides
+    // the search path's automatic flat-day trim (buildRowsFromSearched already
+    // skips that heuristic when this field is set).
+    const startDate = document.getElementById('polyStartDate').value;
+    if (startDate) {
+      const filtered = rows.filter(r => String(r.date).slice(0, 10) >= startDate);
+      const distinctDates = new Set(filtered.map(r => String(r.date).slice(0, 10)));
+      if (distinctDates.size < MIN_POLY_DATES) {
+        throw new Error(`Not enough data after ${startDate} — try an earlier start date.`);
+      }
+      rows = filtered;
+    }
 
     const csv = polyRowsToCsv(rows);
     const csvFile = new File([csv], `${slug}.csv`, { type: 'text/csv' });
@@ -1272,15 +1293,18 @@ async function buildRowsFromSearched() {
   // Trim leading "flat" days where outcomes seed at uniform/default prices
   // (e.g. 25/25/25/25) before real trading. Start at the first day whose
   // spread (max - min) reaches the threshold; keep everything after. Front-only.
+  // Skipped entirely when the user picked an explicit start date — that
+  // filter (applied later in generatePolyFrom) overrides this heuristic.
   const FLAT_SPREAD = 3.0;   // percentage points
   const MIN_DAYS = 5;
+  const userPickedStart = !!document.getElementById('polyStartDate').value;
   const spreadOf = x => {
     const vs = x.vals.map(v => v.value);
     return vs.length ? Math.max(...vs) - Math.min(...vs) : 0;
   };
-  let startIdx = perDay.findIndex(x => spreadOf(x) >= FLAT_SPREAD);
+  let startIdx = userPickedStart ? 0 : perDay.findIndex(x => spreadOf(x) >= FLAT_SPREAD);
   if (startIdx < 0) startIdx = 0;                          // never any spread -> keep all
-  if (perDay.length - startIdx < MIN_DAYS) startIdx = 0;   // guard: too few days -> keep untrimmed
+  if (!userPickedStart && perDay.length - startIdx < MIN_DAYS) startIdx = 0;   // guard: too few days -> keep untrimmed
   const kept = perDay.slice(startIdx);
 
   const rows = [];
