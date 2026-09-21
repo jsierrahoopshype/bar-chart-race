@@ -59,7 +59,14 @@ def run(cfg: Config) -> None:
         stat_column=cfg.stat_column,
         date_start=cfg.date_start,
         date_end=cfg.date_end,
+        timeline_type=cfg.timeline_type,
     )
+
+    # When the timeline is made of arbitrary labels (milestones, stages),
+    # "years" is meaningless for the tenure column — count steps instead.
+    if cfg.time_unit == "auto" and df.attrs.get("timeline_mode") == "labels":
+        cfg.time_unit = "steps"
+        sys.stderr.write("  Timeline: column-order labels (tenure unit: steps)\n")
 
     # 3. Animate (build keyframes + interpolate)
     sys.stderr.write("Building animation frames...\n")

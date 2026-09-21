@@ -242,6 +242,17 @@ a { color:var(--accent2); }
           <option value="days">Days</option>
           <option value="weeks">Weeks</option>
           <option value="months">Months</option>
+          <option value="milestones">Milestones</option>
+          <option value="steps">Steps</option>
+        </select>
+      </div>
+      <div class="field"><label>Timeline Type</label>
+        <select id="timelineType" onchange="update()">
+          <option value="auto" selected>Auto-detect</option>
+          <option value="years">Years</option>
+          <option value="dates">Dates</option>
+          <option value="ages">Ages</option>
+          <option value="labels">Labels (column order)</option>
         </select>
       </div>
     </div>
@@ -1340,6 +1351,7 @@ async function generateVideo() {
     subtitle: getVal('subtitle'),
     watermark: getVal('watermark'),
     time_unit: getVal('timeUnit'),
+    timeline_type: getVal('timelineType'),
     value_decimals: parseInt(getVal('valueDecimals')),
     theme_overrides: collectOverrides(),
   };

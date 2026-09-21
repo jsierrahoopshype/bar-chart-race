@@ -149,6 +149,9 @@ def generate():
             show_tenure_leaderboard=bool(config.get("show_tenure_leaderboard", True)),
             show_milestone_records=bool(config.get("show_milestone_records", True)),
             gap_absolute=config.get("gap_absolute"),  # None if absent, falls back to theme's value
+            # Timeline interpretation — "auto" preserves existing behavior.
+            timeline_type=config.get("timeline_type", "auto"),
+            time_unit=config.get("time_unit", "auto"),
         )
 
         # Run pipeline (synchronous — HF Spaces have generous timeouts).

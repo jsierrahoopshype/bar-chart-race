@@ -482,6 +482,32 @@ a:hover { color: var(--accent-hover); }
           <label for="watermark">Watermark</label>
           <input type="text" id="watermark" placeholder="@yourhandle">
         </div>
+        <div class="field">
+          <label for="timelineType">Timeline type</label>
+          <select id="timelineType">
+            <option value="auto" selected>Auto (detect)</option>
+            <option value="years">Years</option>
+            <option value="dates">Dates</option>
+            <option value="ages">Ages</option>
+            <option value="labels">Labels (column order)</option>
+          </select>
+          <div style="font-size:0.75rem;color:var(--text2)">How the column headers are read. "Labels" shows the header text as-is and uses column order.</div>
+        </div>
+        <div class="field">
+          <label for="timeUnit">Time unit</label>
+          <select id="timeUnit">
+            <option value="auto" selected>Auto</option>
+            <option value="years">Years</option>
+            <option value="seasons">Seasons</option>
+            <option value="games">Games</option>
+            <option value="days">Days</option>
+            <option value="weeks">Weeks</option>
+            <option value="months">Months</option>
+            <option value="milestones">Milestones</option>
+            <option value="steps">Steps</option>
+          </select>
+          <div style="font-size:0.75rem;color:var(--text2)">Wording for the "MOST … IN TOP 10" panel.</div>
+        </div>
       </div>
 
       <div class="setting-group">
@@ -1352,6 +1378,8 @@ async function generateUpload() {
     watermark: document.getElementById('watermark').value,
     gsheet_url: gsheetUrl || undefined,
     gap_absolute: false,
+    timeline_type: document.getElementById('timelineType').value,
+    time_unit: document.getElementById('timeUnit').value,
   };
 
   const formData = new FormData();
@@ -1409,10 +1437,12 @@ async function generateUpload() {
 
   } catch (e) {
     clearInterval(progressInterval);
+    // Only a genuine timeout warrants the "shorten the video" advice —
+    // every other error gets reported as-is.
     if (e.name === 'AbortError') {
       errorText.textContent = 'Request timed out after 5 minutes. For long videos, reduce duration to 30s or switch to 30 FPS.';
     } else {
-      errorText.textContent = 'Error: ' + e.message + ' — For long videos, reduce duration to 30s or switch to 30 FPS.';
+      errorText.textContent = 'Error: ' + e.message;
     }
   } finally {
     btn.disabled = false;

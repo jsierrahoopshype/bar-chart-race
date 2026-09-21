@@ -15,6 +15,7 @@ Supports three input shapes:
 from __future__ import annotations
 
 import re
+import sys
 from datetime import datetime
 from typing import Optional
 
@@ -112,6 +113,71 @@ def _has_age_month_columns(cols: list[str]) -> bool:
     return hits >= len(cols) * 0.8
 
 
+# Plain-year headers must fall inside a believable calendar range, otherwise
+# "10000 points" would be mistaken for the year 10000.
+_YEAR_MIN = 1900
+_YEAR_MAX = 2100
+# Small numbers (ages, rounds, game numbers) are mapped to year 2000 + n.
+_AGE_OFFSET_MAX = 200
+# Season-style headers: "2024-25", "2024–2025", "2024/25".
+_SEASON_RE = re.compile(r'^\s*(\d{4})\s*[-–/]\s*\d{2,4}\s*$')
+
+
+def _is_plain_year(s: str) -> bool:
+    """Return True if *s* is nothing but a believable year (or season)."""
+    s = str(s).strip()
+    m = _SEASON_RE.match(s)
+    if m:
+        return _YEAR_MIN <= int(m.group(1)) <= _YEAR_MAX
+    if re.fullmatch(r'\d{4}', s):
+        return _YEAR_MIN <= int(s) <= _YEAR_MAX
+    return False
+
+
+def _numeric_timeline_ok(time_cols: list) -> bool:
+    """Return True if *time_cols* can safely become timestamps.
+
+    Guards the numeric branch against headers like ``"43000 points"``,
+    whose extracted number would overflow :class:`pandas.Timestamp`.
+    """
+    nums: list[int] = []
+    for c in time_cols:
+        label = _extract_numeric_label(str(c))
+        if label is None:
+            return False
+        try:
+            nums.append(int(label))
+        except ValueError:
+            return False
+    if not nums:
+        return False
+    # Bare years / seasons.
+    if all(_is_plain_year(c) for c in time_cols):
+        return True
+    lo, hi = min(nums), max(nums)
+    # Year branch (mirrors _normalize_transposed_wide's own thresholds).
+    if lo >= _YEAR_MIN and hi <= 2200:
+        return True
+    # Age / round branch: mapped to year 2000 + n, so n must stay small.
+    return hi <= _AGE_OFFSET_MAX
+
+
+def _format_label(text: str) -> str:
+    """Pretty-print a free-form timeline label.
+
+    Adds thousands separators to bare numbers ("1000 points" →
+    "1,000 points") while leaving years untouched.  Idempotent.
+    """
+    text = str(text).strip()
+    if _is_plain_year(text):
+        return text
+    return re.sub(
+        r'(?<![\d,])\d+(?![\d,])',
+        lambda m: f"{int(m.group()):,}",
+        text,
+    )
+
+
 def _is_transposed_wide(df: pd.DataFrame) -> bool:
     """Detect transposed wide format (players as rows, time periods as cols).
 
@@ -146,7 +212,13 @@ def _is_transposed_wide(df: pd.DataFrame) -> bool:
     numeric_count = sum(
         1 for c in other_cols if _extract_numeric_label(c) is not None
     )
-    return numeric_count >= len(other_cols) * 0.8
+    if numeric_count >= len(other_cols) * 0.8:
+        return True
+
+    # Fallback: the first column is *explicitly* named like an entity column,
+    # so the remaining headers are arbitrary timeline labels (milestones,
+    # rounds, stages...) that column order alone can sequence.
+    return first in _PLAYER_NAMES
 
 
 def detect_format(df: pd.DataFrame) -> str:
@@ -222,7 +294,10 @@ def _normalize_wide(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _normalize_transposed_wide(df: pd.DataFrame) -> pd.DataFrame:
+def _normalize_transposed_wide(
+    df: pd.DataFrame,
+    timeline_type: str = "auto",
+) -> pd.DataFrame:
     """Players as rows, time periods (ages / years) as columns.
 
     Melts the data to long format, converts numeric column headers to
@@ -231,19 +306,43 @@ def _normalize_transposed_wide(df: pd.DataFrame) -> pd.DataFrame:
     original labels (e.g. ``"18"`` instead of ``"Jan 01, 2018"``).
 
     Also supports date-name columns like "October 21", "January 5" where
-    the column header itself is used as the display label.
+    the column header itself is used as the display label, and — as a
+    final fallback — arbitrary text headers ("1000 points") sequenced by
+    column order (*labels* mode).
+
+    *timeline_type* forces a branch: ``"dates"``, ``"ages"``, ``"years"``,
+    ``"labels"``, or ``"auto"`` (detect, the default).
     """
     cols = list(df.columns)
     player_col = cols[0]
     time_cols = cols[1:]
 
-    # Branch: age-month columns ("18 years", "18 years, 1 month").
-    if _has_age_month_columns(time_cols):
-        return _normalize_transposed_wide_age_months(df, player_col, time_cols)
+    tt = (timeline_type or "auto").strip().lower()
 
-    # Branch: date-name columns ("October 21", "Nov 5").
-    if _has_date_name_columns(time_cols):
-        return _normalize_transposed_wide_date_names(df, player_col, time_cols)
+    if tt == "labels":
+        return _normalize_labels_timeline(df, player_col, time_cols)
+
+    if tt == "auto" or tt == "ages":
+        # Branch: age-month columns ("18 years", "18 years, 1 month").
+        if _has_age_month_columns(time_cols):
+            return _normalize_transposed_wide_age_months(
+                df, player_col, time_cols)
+
+    if tt == "auto" or tt == "dates":
+        # Branch: date-name columns ("October 21", "Nov 5").
+        if _has_date_name_columns(time_cols):
+            return _normalize_transposed_wide_date_names(
+                df, player_col, time_cols)
+
+    # Numeric branch — only when the headers really are numbers that fit in
+    # a timestamp.  Otherwise fall through to labels mode.
+    if not _numeric_timeline_ok(time_cols):
+        if tt not in ("auto", ""):
+            sys.stderr.write(
+                f"  Timeline type {tt!r} requested, but these column headers "
+                f"are not usable dates; using column order instead.\n"
+            )
+        return _normalize_labels_timeline(df, player_col, time_cols)
 
     records: list[dict] = []
     for _, row in df.iterrows():
@@ -426,6 +525,64 @@ def _normalize_transposed_wide_age_months(
     return result
 
 
+def _normalize_labels_timeline(
+    df: pd.DataFrame,
+    player_col: str,
+    time_cols: list[str],
+) -> pd.DataFrame:
+    """Handle transposed wide where columns are arbitrary text labels.
+
+    Column *order* is the timeline: each column gets a synthetic timestamp
+    (base date + column index days) that exists purely for ordering, while
+    the original header text is kept in ``date_label_map`` so it is what
+    appears on screen.  Labels are never parsed as dates.
+
+    Blank cells mean "not present at this step" — the entity simply drops
+    out of the race rather than being treated as zero or forward-filled.
+    """
+    if not time_cols:
+        raise ValueError("No timeline columns found.")
+
+    base = pd.Timestamp("2000-01-01")
+    col_dates: list[tuple[str, pd.Timestamp]] = [
+        (str(tc), base + pd.Timedelta(days=i))
+        for i, tc in enumerate(time_cols)
+    ]
+
+    records: list[dict] = []
+    for _, row in df.iterrows():
+        player = str(row[player_col]).strip()
+        for col_name, ts in col_dates:
+            val = pd.to_numeric(row[col_name], errors="coerce")
+            if pd.isna(val):
+                continue  # blank → not present at this step
+            val = float(val)
+            if val == 0:
+                continue
+            records.append({
+                "date": ts,
+                "player": player,
+                "value": val,
+                "team": "",
+            })
+
+    if not records:
+        raise ValueError("No non-zero data found in the timeline columns.")
+
+    out = pd.DataFrame(records)
+    out["value"] = pd.to_numeric(out["value"], errors="coerce")
+
+    # Display labels: original header text, prettified ("1,000 points").
+    label_map: dict[pd.Timestamp, str] = {
+        ts: _format_label(col_name) for col_name, ts in col_dates
+    }
+
+    result = out[["date", "player", "value", "team"]].copy()
+    result.attrs["date_label_map"] = label_map
+    result.attrs["timeline_mode"] = "labels"
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -435,6 +592,7 @@ def normalize(
     stat_column: Optional[str] = None,
     date_start: Optional[str] = None,
     date_end: Optional[str] = None,
+    timeline_type: str = "auto",
 ) -> pd.DataFrame:
     """Return a cleaned DataFrame with columns ``date, player, value, team``.
 
@@ -448,7 +606,7 @@ def normalize(
     if fmt == "long":
         out = _normalize_long(df, stat_column=stat_column)
     elif fmt == "transposed_wide":
-        out = _normalize_transposed_wide(df)
+        out = _normalize_transposed_wide(df, timeline_type=timeline_type)
     else:
         out = _normalize_wide(df)
 

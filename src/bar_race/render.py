@@ -1747,6 +1747,7 @@ class FrameRenderer:
             _UNIT_LABELS = {
                 "years": "YEARS", "seasons": "SEASONS", "games": "GAMES",
                 "days": "DAYS", "weeks": "WEEKS", "months": "MONTHS",
+                "milestones": "MILESTONES", "steps": "STEPS",
             }
             _unit_label = _UNIT_LABELS.get(_unit, "YEARS")
 

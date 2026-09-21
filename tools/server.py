@@ -558,6 +558,7 @@ class Handler(SimpleHTTPRequestHandler):
                 headshot_dir=str(ASSETS_DIR / "headshots"),
                 logo_dir=str(ASSETS_DIR / "logos"),
                 time_unit=config.get("time_unit", "auto"),
+                timeline_type=config.get("timeline_type", "auto"),
                 value_decimals=int(config.get("value_decimals", -1)),
             )
 

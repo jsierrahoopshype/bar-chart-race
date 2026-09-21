@@ -196,7 +196,13 @@ class Config:
     add_sound_effects: bool = False
 
     # --- time unit for tenure column ----------------------------------------
-    time_unit: str = "auto"  # "auto", "years", "seasons", "games", "days", "weeks", "months"
+    time_unit: str = "auto"  # "auto", "years", "seasons", "games", "days", "weeks", "months", "milestones", "steps"
+
+    # --- how the time columns should be interpreted ---------------------------
+    # "auto"  = detect (dates → ages → years → column-order labels)
+    # "years" / "dates" / "ages" force an existing branch
+    # "labels" = use column order, show the header text verbatim
+    timeline_type: str = "auto"
 
     # --- value display --------------------------------------------------------
     value_decimals: int = -1  # -1 = auto-detect from data; 0-3 = fixed
