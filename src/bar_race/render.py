@@ -899,6 +899,12 @@ def _load_headshot(
 
         else:
             # Default "circle" style.
+            # Un-squash legacy 256x256 files: rebuild_headshots.py resized NBA CDN
+            # 1040x760 sources straight to a square. Restore the native aspect first.
+            # Only fires for exactly-square sources, so correctly-shaped files are untouched.
+            src_w, src_h = raw.size
+            if src_w == src_h:
+                raw = raw.resize((round(src_h * 1040 / 760), src_h), Image.LANCZOS)
             # Square-crop from top (face focus) before resize so landscape
             # sources don't get squashed into the circle.
             src_w, src_h = raw.size
