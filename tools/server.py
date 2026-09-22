@@ -78,7 +78,8 @@ def _run_pipeline_multi(job_id: str, base_cfg: Config, input_path: str,
         print(f"[server] value_decimals = {base_cfg.value_decimals}")
 
         q.put({"event": "status", "data": "Building keyframes..."})
-        kfs = build_keyframes(ndf, base_cfg.top_n)
+        kfs = build_keyframes(
+            ndf, base_cfg.top_n, sort_ascending=base_cfg.sort_ascending)
 
         body_frames = int(base_cfg.fps * base_cfg.duration_sec)
         n_steps = max(1, len(kfs) - 1)
@@ -91,6 +92,7 @@ def _run_pipeline_multi(job_id: str, base_cfg: Config, input_path: str,
         _reigns, _sound_events = populate_leader_overlays(
             frames, fps=base_cfg.fps,
             gap_threshold=base_cfg.gap_alert_threshold,
+            sort_ascending=base_cfg.sort_ascending,
         )
 
         intro_count = int(base_cfg.fps * base_cfg.intro_hold_sec)
@@ -559,6 +561,7 @@ class Handler(SimpleHTTPRequestHandler):
                 logo_dir=str(ASSETS_DIR / "logos"),
                 time_unit=config.get("time_unit", "auto"),
                 timeline_type=config.get("timeline_type", "auto"),
+                sort_ascending=bool(config.get("sort_ascending", False)),
                 value_decimals=int(config.get("value_decimals", -1)),
             )
 

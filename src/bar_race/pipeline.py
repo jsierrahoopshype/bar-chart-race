@@ -82,7 +82,8 @@ def run(cfg: Config) -> None:
         cfg.value_decimals = min(max_dp, 3)
         sys.stderr.write(f"  Auto-detected {cfg.value_decimals} decimal places\n")
 
-    keyframes = build_keyframes(df, top_n=cfg.top_n)
+    keyframes = build_keyframes(
+        df, top_n=cfg.top_n, sort_ascending=cfg.sort_ascending)
 
     body_frames = int(cfg.fps * cfg.duration_sec)
 
@@ -106,6 +107,7 @@ def run(cfg: Config) -> None:
         frames,
         fps=cfg.fps,
         gap_threshold=cfg.gap_alert_threshold,
+        sort_ascending=cfg.sort_ascending,
     )
 
     # Intro / outro hold frames.

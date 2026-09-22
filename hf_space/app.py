@@ -152,6 +152,8 @@ def generate():
             # Timeline interpretation — "auto" preserves existing behavior.
             timeline_type=config.get("timeline_type", "auto"),
             time_unit=config.get("time_unit", "auto"),
+            # Ranking direction — default False keeps "highest value wins".
+            sort_ascending=bool(config.get("sort_ascending", False)),
         )
 
         # Run pipeline (synchronous — HF Spaces have generous timeouts).

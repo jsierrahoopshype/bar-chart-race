@@ -93,8 +93,16 @@ class Keyframe:
 # Keyframe building
 # ---------------------------------------------------------------------------
 
-def build_keyframes(df: pd.DataFrame, top_n: int = 10) -> list[Keyframe]:
-    """Build one :class:`Keyframe` per unique date, keeping *top_n* entries."""
+def build_keyframes(
+    df: pd.DataFrame,
+    top_n: int = 10,
+    sort_ascending: bool = False,
+) -> list[Keyframe]:
+    """Build one :class:`Keyframe` per unique date, keeping *top_n* entries.
+
+    With *sort_ascending* the **lowest** values rank first, so the kept
+    entries are the *top_n* smallest (e.g. fewest attempts to a milestone).
+    """
     label_map: dict = df.attrs.get("date_label_map", {})
     keyframes: list[Keyframe] = []
 
@@ -103,7 +111,9 @@ def build_keyframes(df: pd.DataFrame, top_n: int = 10) -> list[Keyframe]:
         agg = grp.groupby("player", as_index=False).agg(
             {"value": "max", "team": "first"}
         )
-        agg = agg.sort_values("value", ascending=False).head(top_n).reset_index(drop=True)
+        agg = agg.sort_values(
+            "value", ascending=sort_ascending
+        ).head(top_n).reset_index(drop=True)
 
         entries = [
             BarState(
@@ -329,6 +339,7 @@ def populate_leader_overlays(
     fps: int = 60,
     gap_threshold: float = 0.10,
     gap_hysteresis: float = 0.08,
+    sort_ascending: bool = False,
 ) -> tuple[list[ReignPeriod], list[SoundEvent]]:
     """Fill in leader/reign/gap/tenure/milestone fields. Returns (reigns, sound_events)."""
     if not frames:
@@ -373,7 +384,9 @@ def populate_leader_overlays(
                     first_appearance[b.player] = n_steps
 
             # Milestones: check at keyframe boundaries only.
-            for b in f.bars:
+            # Skipped when lower is better — "first to cross a threshold"
+            # has no meaning when the smallest value wins.
+            for b in (() if sort_ascending else f.bars):
                 player_reached = reached.setdefault(b.player, set())
                 for m in milestones:
                     if m not in player_reached and b.value >= m:
@@ -446,11 +459,25 @@ def populate_leader_overlays(
                 history.append(f"{_abbrev(r.player)} ({r.start_label}\u2014{end})")
             f.reign_history = history
 
+        if sort_ascending:
+            # Lower is better: the runner-up is the next-lowest value that is
+            # still *above* the leader's.  Rank order can disagree for a few
+            # frames while a bar slides out, so take this from the values
+            # themselves rather than from rank 1.
+            _behind = [b.value for b in f.bars if b.value > leader_val]
+            second_val = min(_behind) if _behind else 0.0
+
         # Gap percentage.
         if leader_val > 0 and second_val > 0:
-            gap = (leader_val - second_val) / second_val
+            if sort_ascending:
+                # Lower is better: the leader is *below* second place, so
+                # flip the subtraction to keep the lead positive.
+                gap = (second_val - leader_val) / second_val
+                f.gap_abs = second_val - leader_val
+            else:
+                gap = (leader_val - second_val) / second_val
+                f.gap_abs = leader_val - second_val  # absolute point gap
             f.gap_pct = gap
-            f.gap_abs = leader_val - second_val  # absolute point gap
             if gap_active:
                 gap_active = gap >= gap_hysteresis
             else:

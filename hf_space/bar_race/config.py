@@ -210,6 +210,11 @@ class Config:
     # theme's value_suffix is used, so existing renders are byte-identical.
     value_suffix: Optional[str] = None
 
+    # --- ranking direction ----------------------------------------------------
+    # False (default) = highest value ranks #1.  True = lowest value ranks #1
+    # (e.g. fewest shots taken to reach a milestone).
+    sort_ascending: bool = False
+
     # --- entity type ----------------------------------------------------------
     entity_type: str = "auto"  # "auto", "player", "team"
 

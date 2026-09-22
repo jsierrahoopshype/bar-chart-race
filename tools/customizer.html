@@ -255,6 +255,7 @@ a { color:var(--accent2); }
           <option value="labels">Labels (column order)</option>
         </select>
       </div>
+      <label class="toggle"><input type="checkbox" id="sortAscending" onchange="update()"> Lower is better (lowest value ranks #1)</label>
     </div>
 
     <!-- Background -->
@@ -1352,6 +1353,7 @@ async function generateVideo() {
     watermark: getVal('watermark'),
     time_unit: getVal('timeUnit'),
     timeline_type: getVal('timelineType'),
+    sort_ascending: getCheck('sortAscending'),
     value_decimals: parseInt(getVal('valueDecimals')),
     theme_overrides: collectOverrides(),
   };

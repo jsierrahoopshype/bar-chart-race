@@ -508,6 +508,13 @@ a:hover { color: var(--accent-hover); }
           </select>
           <div style="font-size:0.75rem;color:var(--text2)">Wording for the "MOST … IN TOP 10" panel.</div>
         </div>
+        <div class="toggle-row">
+          <label for="sortAscending" style="font-size:0.85rem;color:var(--text2)">Lower is better (lowest value ranks #1)</label>
+          <div class="toggle-switch">
+            <input type="checkbox" id="sortAscending">
+            <span class="slider"></span>
+          </div>
+        </div>
       </div>
 
       <div class="setting-group">
@@ -1380,6 +1387,7 @@ async function generateUpload() {
     gap_absolute: false,
     timeline_type: document.getElementById('timelineType').value,
     time_unit: document.getElementById('timeUnit').value,
+    sort_ascending: document.getElementById('sortAscending').checked,
   };
 
   const formData = new FormData();
